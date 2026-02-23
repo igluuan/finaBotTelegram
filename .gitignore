@@ -1,0 +1,12 @@
+finbot/.env
+
+# Arquivos temporários / cache
+__pycache__/
+*.py[cod]
+
+# Ambiente virtual
+.venv/
+venv/
+
+# Banco de dados local
+finbot.db

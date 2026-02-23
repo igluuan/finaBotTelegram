@@ -1,0 +1,5 @@
+python-telegram-bot
+sqlalchemy
+apscheduler
+google-generativeai
+python-dotenv
