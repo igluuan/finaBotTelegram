@@ -3,8 +3,8 @@ from telegram.ext import (
     ContextTypes, ConversationHandler,
     CommandHandler, MessageHandler, filters
 )
-from bot.database.crud import criar_parcela, listar_parcelas_ativas, quitar_parcela, total_mensal_parcelas, get_db
-from bot.services.ai_service import gerar_dica_parcela
+from ..database.crud import criar_parcela, listar_parcelas_ativas, quitar_parcela, total_mensal_parcelas, get_db
+from ..services.ai_service import gerar_dica_parcela
 from datetime import date, timedelta
 import logging
 

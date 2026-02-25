@@ -1,8 +1,5 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-try:
-    from ...bot.database import crud  # when imported as package
-except Exception:
-    from bot.database import crud
+from ..database import crud
 from datetime import datetime
 import logging
 
@@ -12,10 +9,7 @@ scheduler = AsyncIOScheduler()
 
 async def diario_job(application):
     # Enviar resumo do dia para o usuário
-    try:
-        from ...config import ALLOWED_USER_ID
-    except Exception:
-        from config import ALLOWED_USER_ID
+    from ...config import ALLOWED_USER_ID
     if not ALLOWED_USER_ID:
         return
 
@@ -36,10 +30,7 @@ async def diario_job(application):
 
 async def semanal_job(application):
     # Relatório semanal
-    try:
-        from ...config import ALLOWED_USER_ID
-    except Exception:
-        from config import ALLOWED_USER_ID
+    from ...config import ALLOWED_USER_ID
     if not ALLOWED_USER_ID:
         return
     
@@ -52,10 +43,7 @@ async def semanal_job(application):
 
 async def mensal_job(application):
     # Relatório Mensal
-    try:
-        from ...config import ALLOWED_USER_ID
-    except Exception:
-        from config import ALLOWED_USER_ID
+    from ...config import ALLOWED_USER_ID
     if not ALLOWED_USER_ID:
         return
     

@@ -1,9 +1,9 @@
 import google.generativeai as genai
 import logging
 try:
-    from config import GEMINI_API_KEY
-except ImportError:
     from ...config import GEMINI_API_KEY
+except ImportError:
+    from config import GEMINI_API_KEY
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from bot.services import parser
-from bot.database import crud
+from ..services import parser
+from ..database import crud
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = crud.get_user(user_id)
     if not user:
         # Check ALLOWED_USER_ID
-        from config import ALLOWED_USER_ID
+        from ...config import ALLOWED_USER_ID
         if ALLOWED_USER_ID and str(user_id) != str(ALLOWED_USER_ID):
             await update.message.reply_text("⛔ Acesso não autorizado.")
             return

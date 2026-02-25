@@ -3,8 +3,8 @@ from telegram.ext import (
     ContextTypes, ConversationHandler,
     CommandHandler, MessageHandler, filters
 )
-from bot.database.crud import criar_ganho, listar_ganhos_mes, total_ganhos_mes
-from bot.database.crud import total_gastos_mes, total_mensal_parcelas, get_db
+from ..database.crud import criar_ganho, listar_ganhos_mes, total_ganhos_mes
+from ..database.crud import total_gastos_mes, total_mensal_parcelas, get_db
 from datetime import date
 
 TIPO, VALOR, DESCRICAO, RECORRENTE, DIA = range(5)

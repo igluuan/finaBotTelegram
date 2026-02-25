@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from bot.services import parser
-from bot.database import crud
+from ..services import parser
+from ..database import crud
 from datetime import datetime
 
 async def dica(update: Update, context: ContextTypes.DEFAULT_TYPE):

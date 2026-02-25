@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from bot.database import crud
+from ..database import crud
 from datetime import datetime, timedelta
 
 async def hoje(update: Update, context: ContextTypes.DEFAULT_TYPE):

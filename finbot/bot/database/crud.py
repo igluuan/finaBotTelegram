@@ -6,10 +6,9 @@ from typing import List, Optional, Dict
 
 # Assuming run from finbot directory and config.py is in path
 try:
-    from config import DATABASE_URL
-except ImportError:
-    # Fallback for relative import if run as module
     from ...config import DATABASE_URL
+except ImportError:
+    from config import DATABASE_URL
 
 from .models import Base, Usuario, Gasto, Orcamento, Categoria, Parcela, Ganho
 
