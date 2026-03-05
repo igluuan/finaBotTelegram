@@ -55,22 +55,8 @@ async def iniciar_gasto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     categoria = resultado.get("categoria")
     descricao = resultado.get("descricao", "")
     confianca = resultado.get("confianca", 0)
-    from datetime import datetime, date, timedelta
-    data_gasto = date.today()
-    texto_lower = texto.lower()
-    if "ontem" in texto_lower:
-        data_gasto = date.today() - timedelta(days=1)
-    else:
-        import re
-        m = re.search(r'(\d{1,2})[/-](\d{1,2})', texto_lower)
-        if m:
-            dia = int(m.group(1))
-            mes = int(m.group(2))
-            ano = datetime.now().year
-            try:
-                data_gasto = date(ano, mes, dia)
-            except ValueError:
-                data_gasto = date.today()
+    from datetime import date
+    data_gasto = parser.parse_user_date(texto, hoje=date.today())
     context.user_data["gasto"] = {
         "user_id": user_id,
         "valor": valor,

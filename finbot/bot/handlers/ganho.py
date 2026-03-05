@@ -5,7 +5,8 @@ from telegram.ext import (
 )
 from ..database.crud import criar_ganho, listar_ganhos_mes, total_ganhos_mes
 from ..database.crud import total_gastos_mes, total_mensal_parcelas, get_db
-from datetime import date, datetime, timedelta
+from ..services import parser
+from datetime import date
 
 TIPO, VALOR, DATA, DESCRICAO, RECORRENTE, DIA = range(6)
 
@@ -79,24 +80,10 @@ async def receber_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receber_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text.strip().lower()
     hoje = date.today()
-    data_registro = hoje
     if texto == "/hoje":
         data_registro = hoje
-    elif "ontem" in texto:
-        data_registro = hoje - timedelta(days=1)
     else:
-        import re
-        m = re.search(r'(\d{1,2})[/-](\d{1,2})', texto)
-        if m:
-            dia = int(m.group(1))
-            mes = int(m.group(2))
-            ano = datetime.now().year
-            try:
-                data_registro = date(ano, mes, dia)
-            except ValueError:
-                data_registro = hoje
-        else:
-            data_registro = hoje
+        data_registro = parser.parse_user_date(texto, hoje=hoje)
 
     context.user_data["data"] = data_registro
     await update.message.reply_text(
