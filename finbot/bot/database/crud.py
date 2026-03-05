@@ -28,6 +28,8 @@ def get_db():
 
 # --- Ganhos ---
 def criar_ganho(db, user_id: int, dados: dict) -> Ganho:
+    data_registro = dados.get("data")
+    data_final = data_registro or date.today()
     ganho = Ganho(
         user_id         = user_id,
         valor           = dados["valor"],
@@ -35,7 +37,7 @@ def criar_ganho(db, user_id: int, dados: dict) -> Ganho:
         descricao       = dados["descricao"],
         recorrente      = dados.get("recorrente", False),
         dia_recebimento = dados.get("dia_recebimento"),
-        data            = date.today(),
+        data            = data_final,
     )
     db.add(ganho)
     db.commit()
@@ -117,9 +119,10 @@ def create_user(telegram_id: int, nome: str) -> Usuario:
         return user
 
 # --- Gastos ---
-def add_gasto(user_id: int, valor: float, categoria: str, descricao: str) -> Gasto:
+def add_gasto(user_id: int, valor: float, categoria: str, descricao: str, data_registro: date | None = None) -> Gasto:
     with get_db() as db:
-        gasto = Gasto(user_id=user_id, valor=valor, categoria=categoria, descricao=descricao, data=date.today())
+        data_final = data_registro or date.today()
+        gasto = Gasto(user_id=user_id, valor=valor, categoria=categoria, descricao=descricao, data=data_final)
         db.add(gasto)
         db.commit()
         db.refresh(gasto)

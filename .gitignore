@@ -10,3 +10,4 @@ venv/
 
 # Banco de dados local
 finbot.db
+.env

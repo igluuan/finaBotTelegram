@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai.types import HttpOptions
 import logging
 try:
     from ...config import GEMINI_API_KEY
@@ -7,22 +8,28 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+_MODEL_NAME = "gemini-2.5-flash"
+
 try:
-    genai.configure(api_key=GEMINI_API_KEY)
-    # Usar sufixo -latest evita erro 404 em algumas versões da API
-    _model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    _client = genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=HttpOptions(api_version="v1"),
+    ) if GEMINI_API_KEY else None
 except Exception as _e:
     logger.error(f"Falha ao configurar Gemini: {_e}")
-    _model = None
+    _client = None
 
 async def generate_content(prompt: str) -> str:
-    if _model is None:
+    if _client is None:
         return ""
     try:
-        response = await _model.generate_content_async(prompt)
+        response = await _client.aio.models.generate_content(
+            model=_MODEL_NAME,
+            contents=prompt,
+        )
         return getattr(response, "text", "") or ""
     except Exception as e:
-        logger.error(f"Erro ao chamar Gemini: {e}")
+        logger.error(f"Erro ao chamar Gemini ({_MODEL_NAME}): {e}")
         return ""
 
 PROMPT_DICA_PARCELA = """

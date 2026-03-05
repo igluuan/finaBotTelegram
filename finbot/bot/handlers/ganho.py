@@ -5,9 +5,9 @@ from telegram.ext import (
 )
 from ..database.crud import criar_ganho, listar_ganhos_mes, total_ganhos_mes
 from ..database.crud import total_gastos_mes, total_mensal_parcelas, get_db
-from datetime import date
+from datetime import date, datetime, timedelta
 
-TIPO, VALOR, DESCRICAO, RECORRENTE, DIA = range(5)
+TIPO, VALOR, DATA, DESCRICAO, RECORRENTE, DIA = range(6)
 
 CATEGORIAS = {
     "1": ("salario", "💼 Salário"),
@@ -67,8 +67,42 @@ async def receber_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["valor"] = valor
     await update.message.reply_text(
+        "📅 Data do ganho? (padrão: hoje)\n"
+        "Digite `ontem` ou uma data `dd/mm`.\n"
+        "Ou envie /hoje para registrar hoje.",
+        parse_mode="Markdown",
+        reply_markup=ReplyKeyboardMarkup([["/hoje"]], one_time_keyboard=True, resize_keyboard=True)
+    )
+    return DATA
+
+
+async def receber_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text.strip().lower()
+    hoje = date.today()
+    data_registro = hoje
+    if texto == "/hoje":
+        data_registro = hoje
+    elif "ontem" in texto:
+        data_registro = hoje - timedelta(days=1)
+    else:
+        import re
+        m = re.search(r'(\d{1,2})[/-](\d{1,2})', texto)
+        if m:
+            dia = int(m.group(1))
+            mes = int(m.group(2))
+            ano = datetime.now().year
+            try:
+                data_registro = date(ano, mes, dia)
+            except ValueError:
+                data_registro = hoje
+        else:
+            data_registro = hoje
+
+    context.user_data["data"] = data_registro
+    await update.message.reply_text(
         "📝 *Descrição* (opcional — pressione /pular para deixar em branco):\nEx: `Salário março`, `Projeto Logo`",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=ReplyKeyboardRemove()
     )
     return DESCRICAO
 
@@ -201,6 +235,7 @@ def get_ganho_handlers():
         states={
             TIPO:       [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_tipo)],
             VALOR:      [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_valor)],
+            DATA:       [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_data)],
             DESCRICAO:  [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receber_descricao),
                 CommandHandler("pular", pular_descricao)

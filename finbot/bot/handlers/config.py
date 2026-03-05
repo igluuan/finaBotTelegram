@@ -1,5 +1,6 @@
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import ContextTypes
+from io import StringIO
 from ..database import crud
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,4 +79,26 @@ async def deletar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Nenhum gasto para remover.")
 
 async def exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Funcionalidade de exportação em breve!")
+    user_id = update.effective_user.id
+    from datetime import datetime
+    agora = datetime.now()
+    gastos = crud.get_gastos_mes(user_id, agora.month, agora.year)
+    ganhos = []
+    try:
+        from ..database import crud as crud_mod
+        with crud_mod.get_db() as db:
+            ganhos = crud_mod.listar_ganhos_mes(db, user_id)
+    except Exception:
+        ganhos = []
+    buffer = StringIO()
+    buffer.write("tipo,data,valor,categoria,descricao\n")
+    for g in gastos:
+        buffer.write(f"gasto,{g.data.isoformat()},{g.valor:.2f},{g.categoria},{(g.descricao or '').replace(',', ' ')}\n")
+    for gan in ganhos:
+        buffer.write(f"ganho,{gan.data.isoformat()},{gan.valor:.2f},{gan.categoria},{(gan.descricao or '').replace(',', ' ')}\n")
+    buffer.seek(0)
+    nome_arquivo = f"finbot_{agora.year}_{agora.month:02d}.csv"
+    await update.message.reply_document(
+        document=InputFile(buffer, filename=nome_arquivo),
+        caption=f"Exportação de {agora.month}/{agora.year}."
+    )
