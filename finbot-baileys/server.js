@@ -1,104 +1,160 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 const qrcode = require('qrcode');
+const pino = require('pino');
+const {
+    default: makeWASocket,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    useMultiFileAuthState,
+} = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:8000/webhook';
+const AUTH_FOLDER = process.env.BAILEYS_AUTH_FOLDER || './baileys_auth';
 
-// ── Cliente WhatsApp ──────────────────────────────────────────
+let sock = null;
+let isConnected = false;
+let connectedNumber = null;
+let latestQrCode = null;
 
-const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: './wwebjs_auth' }),
-    puppeteer: {
-        executablePath: '/usr/bin/chromium-browser', // ajustar se necessário
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-        ],
-    },
-});
+function formatPhoneFromJid(jid) {
+    return jid?.replace('@s.whatsapp.net', '') || null;
+}
 
-client.on('qr', async (qr) => {
-    console.log('QR Code gerado — acesse GET /qr para escanear');
-    // Salva QR em memória para expor via endpoint
-    app.locals.qrCode = await qrcode.toDataURL(qr);
-});
+function parseIncomingText(message) {
+    if (!message) return null;
 
-client.on('ready', () => {
-    console.log('WhatsApp conectado!');
-    app.locals.qrCode = null;
-});
+    if (message.conversation) return message.conversation;
+    if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
+    if (message.imageMessage?.caption) return message.imageMessage.caption;
+    if (message.videoMessage?.caption) return message.videoMessage.caption;
 
-client.on('disconnected', (reason) => {
-    console.log('WhatsApp desconectado:', reason);
-    client.initialize();
-});
+    return null;
+}
 
-client.on('message', async (msg) => {
-    if (msg.fromMe) return;
-    try {
+async function startBaileys() {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
+    const { version } = await fetchLatestBaileysVersion();
+
+    sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: pino({ level: 'warn' }),
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            latestQrCode = await qrcode.toDataURL(qr);
+            console.log('QR Code gerado — acesse GET /qr para escanear');
+        }
+
+        if (connection === 'open') {
+            isConnected = true;
+            latestQrCode = null;
+            connectedNumber = formatPhoneFromJid(sock.user?.id);
+            console.log(`WhatsApp conectado! Número: ${connectedNumber || 'indisponível'}`);
+        }
+
+        if (connection === 'close') {
+            isConnected = false;
+            connectedNumber = null;
+
+            const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+            console.log(`WhatsApp desconectado. Código: ${statusCode}. Reconectar: ${shouldReconnect}`);
+
+            if (shouldReconnect) {
+                await startBaileys();
+            } else {
+                console.log('Sessão encerrada (loggedOut). Gere novo QR em /qr para autenticar novamente.');
+            }
+        }
+    });
+
+    sock.ev.on('messages.upsert', async ({ type, messages }) => {
+        if (type !== 'notify') return;
+
+        const message = messages?.[0];
+        if (!message || message.key.fromMe) return;
+
+        const remoteJid = message.key.remoteJid;
+        if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) return;
+
+        const text = parseIncomingText(message.message);
+        if (!text) return;
+
         const payload = {
-            from: msg.from.replace('@c.us', ''),
-            text: msg.body,
-            name: msg._data?.notifyName || 'Usuário',
+            from: formatPhoneFromJid(remoteJid),
+            text,
+            name: message.pushName || 'Usuário',
         };
-        console.log(`Mensagem recebida de ${payload.from}: ${payload.text}`);
-        await axios.post(WEBHOOK_URL, payload);
-    } catch (error) {
-        console.error('Erro ao enviar para webhook:', error.message);
-    }
-});
 
-client.initialize();
+        try {
+            console.log(`Mensagem recebida de ${payload.from}: ${payload.text}`);
+            await axios.post(WEBHOOK_URL, payload);
+        } catch (error) {
+            console.error('Erro ao enviar para webhook:', error.message);
+        }
+    });
+}
 
-// ── Endpoints ─────────────────────────────────────────────────
-
-// Exibe QR Code para autenticação
 app.get('/qr', (req, res) => {
-    if (!app.locals.qrCode) {
-        return res.send('<h2>✅ WhatsApp já conectado!</h2>');
+    if (!latestQrCode) {
+        return res.send('<h2>✅ WhatsApp já conectado ou aguardando novo QR.</h2>');
     }
+
     res.send(`
         <html>
             <body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column">
                 <h2>Escaneie o QR Code</h2>
-                <img src="${app.locals.qrCode}" />
+                <img src="${latestQrCode}" />
                 <p>Atualize a página se o QR expirar</p>
             </body>
         </html>
     `);
 });
 
-// Status da conexão
 app.get('/status', (req, res) => {
     res.json({
-        connected: client.info ? true : false,
-        number: client.info?.wid?.user || null,
+        connected: isConnected,
+        number: connectedNumber,
     });
 });
 
-// Enviar mensagem (chamado pelo Python)
 app.post('/send-message', async (req, res) => {
     const { to, text } = req.body;
+
     if (!to || !text) {
         return res.status(400).json({ error: 'Parâmetros "to" e "text" são obrigatórios' });
     }
+
+    if (!sock || !isConnected) {
+        return res.status(503).json({ error: 'WhatsApp não conectado' });
+    }
+
     try {
-        const jid = to.includes('@c.us') ? to : `${to}@c.us`;
-        await client.sendMessage(jid, text);
+        const jid = to.includes('@s.whatsapp.net') ? to : `${to}@s.whatsapp.net`;
+        await sock.sendMessage(jid, { text });
         console.log(`Mensagem enviada para ${to}: ${text}`);
-        res.json({ success: true });
+        return res.json({ success: true });
     } catch (error) {
         console.error('Erro ao enviar mensagem:', error);
-        res.status(500).json({ error: 'Falha ao enviar mensagem' });
+        return res.status(500).json({ error: 'Falha ao enviar mensagem' });
     }
 });
 
-app.listen(PORT, () => console.log(`Servidor wwebjs rodando na porta ${PORT}`));
+app.listen(PORT, async () => {
+    console.log(`Servidor Baileys rodando na porta ${PORT}`);
+    await startBaileys();
+});
