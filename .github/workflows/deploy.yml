@@ -1,28 +1,42 @@
-name: Deploy VPS
+name: Deploy to VPS
 
 on:
   push:
-    branches:
-      - main
+    branches: [ develop ]
 
 jobs:
   deploy:
-    name: Deploy na VPS
     runs-on: ubuntu-latest
-    concurrency: deploy-group
-
+    
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }}
-          script: |
-            cd /home/deploy/finaBotTelegram
-            git pull origin main
-            source .venv/bin/activate
-            pip install -r finbot/requirements.txt --quiet
-            systemctl restart finbot
-            echo "Deploy concluído: $(date)"
+    - uses: actions/checkout@v2
+    
+    - name: Copy files to VPS
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        source: "."
+        target: "/home/${{ secrets.VPS_USERNAME }}/finaBotTelegram"
+        
+    - name: Execute remote ssh commands
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        script: |
+          cd /home/${{ secrets.VPS_USERNAME }}/finaBotTelegram
+          
+          # Copia .env se não existir (ou atualiza)
+          # Assumindo que você tem um .env.example ou gerencia via secrets
+          # echo "${{ secrets.ENV_FILE }}" > .env
+          
+          # Build e Deploy com Docker Compose
+          docker-compose down --remove-orphans
+          docker-compose build
+          docker-compose up -d
+          
+          # Verifica status
+          docker-compose ps
