@@ -3,7 +3,9 @@ from telegram.ext import ContextTypes
 from ..services import parser
 from ..database import crud
 from datetime import datetime
+from ..decorators import garantir_usuario
 
+@garantir_usuario
 async def dica(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     agora = datetime.now()

@@ -5,9 +5,12 @@ from telegram.ext import (
 )
 from ..database.crud import criar_ganho, listar_ganhos_mes, total_ganhos_mes
 from ..database.crud import total_gastos_mes, total_mensal_parcelas, get_db
+from ..services import parser, validators
+from ..decorators import garantir_usuario
+from .. import ui
 from datetime import date
 
-TIPO, VALOR, DESCRICAO, RECORRENTE, DIA = range(5)
+TIPO, VALOR, DATA, DESCRICAO, RECORRENTE, DIA = range(6)
 
 CATEGORIAS = {
     "1": ("salario", "💼 Salário"),
@@ -24,11 +27,7 @@ TECLADO_CATEGORIAS = ReplyKeyboardMarkup(
     one_time_keyboard=True, resize_keyboard=True
 )
 
-TECLADO_SIM_NAO = ReplyKeyboardMarkup(
-    [["✅ Sim", "❌ Não"]], one_time_keyboard=True, resize_keyboard=True
-)
-
-
+@garantir_usuario
 async def start_add_ganho(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
@@ -57,18 +56,35 @@ async def receber_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def receber_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        valor = float(update.message.text.strip().replace(",", "."))
-        if valor <= 0:
-            raise ValueError
-    except ValueError:
+    valor = validators.parse_float(update.message.text)
+    if valor is None or valor <= 0:
         await update.message.reply_text("❌ Valor inválido. Ex: `3500` ou `1200.50`", parse_mode="Markdown")
         return VALOR
 
     context.user_data["valor"] = valor
     await update.message.reply_text(
+        "📅 Data do ganho? (padrão: hoje)\n"
+        "Digite `ontem` ou uma data `dd/mm`.\n"
+        "Ou envie /hoje para registrar hoje.",
+        parse_mode="Markdown",
+        reply_markup=ReplyKeyboardMarkup([["/hoje"]], one_time_keyboard=True, resize_keyboard=True)
+    )
+    return DATA
+
+
+async def receber_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text.strip().lower()
+    hoje = date.today()
+    if texto == "/hoje":
+        data_registro = hoje
+    else:
+        data_registro = parser.parse_user_date(texto, hoje=hoje)
+
+    context.user_data["data"] = data_registro
+    await update.message.reply_text(
         "📝 *Descrição* (opcional — pressione /pular para deixar em branco):\nEx: `Salário março`, `Projeto Logo`",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=ReplyKeyboardRemove()
     )
     return DESCRICAO
 
@@ -78,7 +94,7 @@ async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔄 Esse ganho se repete *todo mês*?",
         parse_mode="Markdown",
-        reply_markup=TECLADO_SIM_NAO
+        reply_markup=ui.teclado_sim_nao()
     )
     return RECORRENTE
 
@@ -88,7 +104,7 @@ async def pular_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔄 Esse ganho se repete *todo mês*?",
         parse_mode="Markdown",
-        reply_markup=TECLADO_SIM_NAO
+        reply_markup=ui.teclado_sim_nao()
     )
     return RECORRENTE
 
@@ -110,11 +126,8 @@ async def receber_recorrente(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def receber_dia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        dia = int(update.message.text.strip())
-        if dia < 1 or dia > 31:
-            raise ValueError
-    except ValueError:
+    dia = validators.validar_dia(update.message.text)
+    if not dia:
         await update.message.reply_text("❌ Dia inválido. Digite entre 1 e 31.")
         return DIA
 
@@ -132,22 +145,16 @@ async def _finalizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_gasto_mes  = total_gastos_mes(db, user_id)
         total_parcela_mes = total_mensal_parcelas(db, user_id)
 
-    saldo = total_ganho_mes - total_gasto_mes - total_parcela_mes
-    emoji_saldo = "🟢" if saldo >= 0 else "🔴"
     recorrente_txt = f"🔄 Recorrente — todo dia {dados.get('dia_recebimento', '?')}" if dados.get("recorrente") else "📌 Registro único"
+    
+    balanco_msg = ui.formatar_balanco(total_ganho_mes, total_gasto_mes, total_parcela_mes)
 
     await update.message.reply_text(
         f"✅ *{dados['descricao']}* registrado!\n\n"
         f"{dados['categoria_label']}\n"
         f"💵 *R$ {dados['valor']:.2f}*\n"
         f"{recorrente_txt}\n\n"
-        f"─────────────────\n"
-        f"📊 *Balanço do mês:*\n"
-        f"💚 Ganhos:   R$ {total_ganho_mes:.2f}\n"
-        f"🔴 Gastos:   R$ {total_gasto_mes:.2f}\n"
-        f"💳 Parcelas: R$ {total_parcela_mes:.2f}\n"
-        f"─────────────────\n"
-        f"{emoji_saldo} *Saldo: R$ {saldo:.2f}*",
+        f"{balanco_msg}",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
@@ -183,12 +190,7 @@ async def listar_ganhos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     saldo = total - gastos - parcelas
     emoji_saldo = "🟢" if saldo >= 0 else "🔴"
 
-    linhas.append(f"\n─────────────────")
-    linhas.append(f"💚 Total ganhos:  R$ {total:.2f}")
-    linhas.append(f"🔴 Total gastos:  R$ {gastos:.2f}")
-    linhas.append(f"💳 Parcelas:      R$ {parcelas:.2f}")
-    linhas.append(f"─────────────────")
-    linhas.append(f"{emoji_saldo} *Saldo: R$ {saldo:.2f}*")
+    linhas.append(ui.formatar_balanco(total, gastos, parcelas))
 
     await update.message.reply_text("\n".join(linhas), parse_mode="Markdown")
 
@@ -201,6 +203,7 @@ def get_ganho_handlers():
         states={
             TIPO:       [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_tipo)],
             VALOR:      [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_valor)],
+            DATA:       [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_data)],
             DESCRICAO:  [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receber_descricao),
                 CommandHandler("pular", pular_descricao)

@@ -6,14 +6,21 @@ from typing import List, Optional, Dict
 
 # Assuming run from finbot directory and config.py is in path
 try:
-    from ...config import DATABASE_URL
+    from ...config import DATABASE_URL, TIMEZONE
 except ImportError:
     from config import DATABASE_URL
+    TIMEZONE = None # Fallback
 
-from .models import Base, Usuario, Gasto, Orcamento, Categoria, Parcela, Ganho
+from .models import Base, Usuario, Gasto, Orcamento, Categoria, Parcela, Ganho, Cartao
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def now():
+    return datetime.now(TIMEZONE) if TIMEZONE else datetime.now()
+
+def today():
+    return now().date()
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -28,6 +35,8 @@ def get_db():
 
 # --- Ganhos ---
 def criar_ganho(db, user_id: int, dados: dict) -> Ganho:
+    data_registro = dados.get("data")
+    data_final = data_registro or today()
     ganho = Ganho(
         user_id         = user_id,
         valor           = dados["valor"],
@@ -35,7 +44,7 @@ def criar_ganho(db, user_id: int, dados: dict) -> Ganho:
         descricao       = dados["descricao"],
         recorrente      = dados.get("recorrente", False),
         dia_recebimento = dados.get("dia_recebimento"),
-        data            = date.today(),
+        data            = data_final,
     )
     db.add(ganho)
     db.commit()
@@ -43,23 +52,27 @@ def criar_ganho(db, user_id: int, dados: dict) -> Ganho:
     return ganho
 
 def listar_ganhos_mes(db, user_id: int):
-    hoje = date.today()
+    hoje = today()
     return db.query(Ganho).filter(
         Ganho.user_id == user_id,
         Ganho.data >= hoje.replace(day=1)
     ).order_by(Ganho.data.desc()).all()
 
 def total_ganhos_mes(db, user_id: int) -> float:
-    ganhos = listar_ganhos_mes(db, user_id)
-    return sum(g.valor for g in ganhos)
+    hoje = today()
+    resultado = db.query(func.sum(Ganho.valor)).filter(
+        Ganho.user_id == user_id,
+        Ganho.data >= hoje.replace(day=1)
+    ).scalar()
+    return resultado if resultado else 0.0
 
 def total_gastos_mes(db, user_id: int) -> float:
-    hoje = date.today()
-    gastos = db.query(Gasto).filter(
+    hoje = today()
+    resultado = db.query(func.sum(Gasto.valor)).filter(
         Gasto.user_id == user_id,
         Gasto.data >= hoje.replace(day=1)
-    ).all()
-    return sum(g.valor for g in gastos)
+    ).scalar()
+    return resultado if resultado else 0.0
 
 # --- Parcelas ---
 def criar_parcela(db, user_id: int, dados: dict) -> Parcela:
@@ -72,7 +85,7 @@ def criar_parcela(db, user_id: int, dados: dict) -> Parcela:
         total_parcelas = dados["total_parcelas"],
         parcela_atual  = dados["parcela_atual"],
         dia_vencimento = dados["dia_vencimento"],
-        data_inicio    = date.today(),
+        data_inicio    = today(),
     )
     db.add(parcela)
     db.commit()
@@ -103,6 +116,39 @@ def total_mensal_parcelas(db, user_id: int) -> float:
     parcelas = listar_parcelas_ativas(db, user_id)
     return sum(p.valor_parcela for p in parcelas)
 
+# --- Cartoes ---
+def add_cartao(user_id: int, final: str, nome: str = None, tipo: str = "ambos") -> Cartao:
+    with get_db() as db:
+        # Verifica se já existe
+        existe = db.query(Cartao).filter(
+            Cartao.user_id == user_id,
+            Cartao.final == final
+        ).first()
+        if existe:
+            return existe
+        
+        cartao = Cartao(user_id=user_id, final=final, nome=nome, tipo=tipo)
+        db.add(cartao)
+        db.commit()
+        db.refresh(cartao)
+        return cartao
+
+def get_cartoes_usuario(user_id: int) -> List[Cartao]:
+    with get_db() as db:
+        return db.query(Cartao).filter(Cartao.user_id == user_id).all()
+
+def delete_cartao(user_id: int, final: str) -> bool:
+    with get_db() as db:
+        cartao = db.query(Cartao).filter(
+            Cartao.user_id == user_id, 
+            Cartao.final == final
+        ).first()
+        if cartao:
+            db.delete(cartao)
+            db.commit()
+            return True
+        return False
+
 # --- Usuario ---
 def get_user(telegram_id: int) -> Optional[Usuario]:
     with get_db() as db:
@@ -116,14 +162,38 @@ def create_user(telegram_id: int, nome: str) -> Usuario:
         db.refresh(user)
         return user
 
-# --- Gastos ---
-def add_gasto(user_id: int, valor: float, categoria: str, descricao: str) -> Gasto:
+def update_user_fechamento(telegram_id: int, dia_fechamento: int):
     with get_db() as db:
-        gasto = Gasto(user_id=user_id, valor=valor, categoria=categoria, descricao=descricao, data=date.today())
+        user = db.query(Usuario).filter(Usuario.telegram_id == telegram_id).first()
+        if user:
+            user.dia_fechamento = dia_fechamento
+            db.commit()
+
+# --- Gastos ---
+def add_gasto(user_id: int, valor: float, categoria: str, descricao: str, metodo: str = None, data_registro: date | None = None) -> Gasto:
+    with get_db() as db:
+        data_final = data_registro or today()
+        gasto = Gasto(
+            user_id=user_id,
+            valor=valor,
+            categoria=categoria,
+            descricao=descricao,
+            metodo_pagamento=metodo,
+            data=data_final
+        )
         db.add(gasto)
         db.commit()
         db.refresh(gasto)
         return gasto
+
+def get_user_cards(user_id: int) -> List[str]:
+    """Retorna lista de finais de cartão únicos usados pelo usuário em parcelas."""
+    with get_db() as db:
+        # Busca cartões únicos na tabela de Parcelas
+        cards = db.query(Parcela.cartao_final).filter(
+            Parcela.user_id == user_id
+        ).distinct().all()
+        return [c[0] for c in cards if c[0]]
 
 def get_gastos_periodo(user_id: int, start_date: date, end_date: date) -> List[Gasto]:
     with get_db() as db:
@@ -190,40 +260,53 @@ def set_orcamento(user_id: int, categoria: str, mes: int, ano: int, limite: floa
         db.commit()
 
 def get_orcamento_status(user_id: int, mes: int, ano: int) -> List[Dict]:
-    # Retorna lista com categoria, gasto atual, limite e percentual
-    stats = []
-    gastos_cat = get_gastos_por_categoria(user_id, mes, ano)
-    
+    # Otimizado para evitar N+1 queries
     with get_db() as db:
-        for cat_data in gastos_cat:
-            cat_name = cat_data['categoria']
-            total_gasto = cat_data['total']
-            
-            orcamento = db.query(Orcamento).filter(
-                Orcamento.user_id == user_id,
-                Orcamento.categoria == cat_name,
-                Orcamento.mes == mes,
-                Orcamento.ano == ano
-            ).first()
-            
-            limite = orcamento.limite if orcamento else 0
+        # Busca gastos agrupados por categoria
+        gastos_query = db.query(
+            Gasto.categoria,
+            func.sum(Gasto.valor).label('total')
+        ).filter(
+            Gasto.user_id == user_id,
+            extract('month', Gasto.data) == mes,
+            extract('year', Gasto.data) == ano
+        ).group_by(Gasto.categoria).all()
+        
+        gastos_map = {r.categoria: r.total for r in gastos_query}
+        
+        # Busca orçamentos para o mês
+        orcamentos_query = db.query(Orcamento).filter(
+            Orcamento.user_id == user_id,
+            Orcamento.mes == mes,
+            Orcamento.ano == ano
+        ).all()
+        
+        orcamentos_map = {o.categoria: o.limite for o in orcamentos_query}
+        
+        # Combina as categorias de gastos e orçamentos
+        todas_categorias = set(gastos_map.keys()) | set(orcamentos_map.keys())
+        
+        stats = []
+        for cat in todas_categorias:
+            total_gasto = gastos_map.get(cat, 0.0)
+            limite = orcamentos_map.get(cat, 0.0)
             percentual = (total_gasto / limite * 100) if limite > 0 else 0
             
             stats.append({
-                "categoria": cat_name,
+                "categoria": cat,
                 "gasto": total_gasto,
                 "limite": limite,
                 "percentual": percentual
             })
-    return stats
+            
+        return stats
 
 # --- Categorias Historico ---
 def get_historico_categoria(user_id: int, categoria: str, dias: int = 30) -> List[Gasto]:
     # Retorna gastos recentes de uma categoria para análise de anomalias
     # Simplificação: pegando últimos X gastos da categoria, independente da data exata se for muito antigo
     # Mas o prompt pede "últimos 30 dias". Vamos implementar filtro de data.
-    from datetime import timedelta
-    limit_date = date.today() - timedelta(days=dias)
+    limit_date = today() - timedelta(days=dias)
     
     with get_db() as db:
         return db.query(Gasto).filter(

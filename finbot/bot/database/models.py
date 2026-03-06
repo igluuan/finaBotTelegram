@@ -4,6 +4,17 @@ from sqlalchemy.sql import func
 
 Base = declarative_base()
 
+class Cartao(Base):
+    __tablename__ = "cartoes"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('usuarios.telegram_id'), nullable=False)
+    final = Column(String(4), nullable=False)  # Ex: 1234
+    nome = Column(String(50)) # Ex: Nubank, Inter (Opcional)
+    tipo = Column(String(20)) # credito, debito, ambos
+    created_at = Column(DateTime, default=func.now())
+
+    usuario = relationship("Usuario", back_populates="cartoes")
+
 class Usuario(Base):
     __tablename__ = 'usuarios'
     telegram_id = Column(Integer, primary_key=True)
@@ -15,6 +26,7 @@ class Usuario(Base):
     gastos = relationship("Gasto", back_populates="usuario")
     categorias = relationship("Categoria", back_populates="usuario")
     orcamentos = relationship("Orcamento", back_populates="usuario")
+    cartoes = relationship("Cartao", back_populates="usuario")
 
 class Parcela(Base):
     __tablename__ = "parcelas"
@@ -57,6 +69,7 @@ class Gasto(Base):
     valor = Column(Float, nullable=False)
     categoria = Column(String, nullable=False)
     descricao = Column(String)
+    metodo_pagamento = Column(String)  # Novo campo: pix, dinheiro, debito, credito(1234)
     data = Column(Date, default=func.current_date())
     created_at = Column(DateTime, default=func.now())
 

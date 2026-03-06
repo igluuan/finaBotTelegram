@@ -1,9 +1,39 @@
 import json
 import logging
 import re
+from datetime import date, datetime, timedelta
 from .ai_service import generate_content
 
 logger = logging.getLogger(__name__)
+
+def parse_user_date(texto: str, hoje: date | None = None) -> date:
+    if hoje is None:
+        hoje = date.today()
+    t = texto.lower()
+    if "ontem" in t:
+        return hoje - timedelta(days=1)
+    m = re.search(r'(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?', t)
+    if not m:
+        return hoje
+    dia = int(m.group(1))
+    mes = int(m.group(2))
+    ano_str = m.group(3)
+    if ano_str:
+        ano = int(ano_str)
+        if ano < 100:
+            ano = 2000 + ano if ano < 70 else 1900 + ano
+    else:
+        ano = hoje.year
+    try:
+        data_base = date(ano, mes, dia)
+    except ValueError:
+        return hoje
+    if not ano_str and data_base > hoje + timedelta(days=1):
+        try:
+            data_base = date(ano - 1, mes, dia)
+        except ValueError:
+            return hoje
+    return data_base
 
 def _local_parse_gasto(mensagem: str) -> dict:
     """
