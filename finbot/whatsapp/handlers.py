@@ -4,8 +4,7 @@ from .state import state_manager
 from ..bot.services import parser
 from ..bot.database import crud
 from ..bot.ui import formatar_balanco
-from datetime import date, datetime, timedelta
-import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 client = WhatsAppClient()
@@ -20,19 +19,10 @@ async def handle_message(message_body):
     text = message_body.text.strip()
     name = message_body.name
     
-    # Conversão de ID
-    try:
-        # Remove sufixo se houver (já removido no server.js, mas por segurança)
-        clean_id = user_id.replace('@s.whatsapp.net', '')
-        db_user_id = int(clean_id)
-    except ValueError:
-        logger.error(f"User ID inválido: {user_id}")
-        return
-
-    # Garante usuário
-    user = crud.get_user(db_user_id)
-    if not user:
-        crud.create_user(db_user_id, name)
+    # Usa telefone como chave de entrada e normaliza para usuário interno único
+    clean_phone = user_id.replace('@s.whatsapp.net', '').replace('@c.us', '')
+    user = crud.get_or_create_user_by_phone(clean_phone, name)
+    db_user_id = user.telegram_id
 
     state = state_manager.get_state(user_id)
     cmd = text.lower()
