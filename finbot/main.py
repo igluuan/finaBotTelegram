@@ -10,7 +10,7 @@ if ROOT_DIR not in sys.path:
 
 from finbot.config import TELEGRAM_BOT_TOKEN
 from finbot.bot.database import crud
-from finbot.bot.handlers import gasto, relatorio, dicas, config, parcela, ganho
+from finbot.bot.handlers import gasto, relatorio, dicas, config, parcela, ganho, cadastro, cartao
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -31,7 +31,10 @@ def main():
         logger.error("TELEGRAM_BOT_TOKEN não configurado. Defina a variável de ambiente antes de iniciar o bot.")
         raise SystemExit(1)
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
-    app.add_handler(CommandHandler("start", config.start))
+    
+    # Cadastro Handler (substitui o start antigo)
+    app.add_handler(cadastro.get_cadastro_handler())
+    
     app.add_handler(CommandHandler("ajuda", config.ajuda))
     app.add_handler(CommandHandler("hoje", relatorio.hoje))
     app.add_handler(CommandHandler("semana", relatorio.semana))
@@ -45,6 +48,11 @@ def main():
         app.add_handler(handler)
     for handler in ganho.get_ganho_handlers():
         app.add_handler(handler)
+    
+    # Cartão Handlers
+    for handler in cartao.get_cartao_handlers():
+        app.add_handler(handler)
+        
     for handler in gasto.get_gasto_handlers():
         app.add_handler(handler)
     logger.info("Bot iniciado...")
