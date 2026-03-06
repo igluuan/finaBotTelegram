@@ -4,7 +4,7 @@ from .state import state_manager
 from ..bot.services import parser
 from ..bot.database import crud
 from ..bot.ui import formatar_balanco
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,15 +38,20 @@ async def handle_message(message_body):
     cmd = text.lower()
 
     # --- Comandos Básicos ---
-    if cmd in ["oi", "ola", "olá", "ajuda", "menu", "/help", "/start"]:
+    if cmd in ["oi", "ola", "olá", "ajuda", "menu", "/help", "/start", "/ajuda"]:
         msg = (
             f"Olá {name}! Sou o FinBot 💰.\n\n"
-            "Posso registrar seus gastos e mostrar relatórios.\n"
-            "Exemplos:\n"
-            "👉 *'35 uber'* (registra gasto)\n"
-            "👉 *'/hoje'* (ver gastos de hoje)\n"
-            "👉 *'/mes'* (ver balanço do mês)\n"
-            "👉 *'/semana'* (ver gastos da semana)"
+            "Posso registrar seus gastos e mostrar relatórios completos.\n"
+            "Aqui está o que posso fazer:\n\n"
+            "📝 *Registrar Gastos:*\n"
+            "👉 Apenas digite: *'35 uber'* ou *'almoço 20'*\n\n"
+            "📊 *Relatórios:*\n"
+            "👉 *'/hoje'* - Gastos de hoje\n"
+            "👉 *'/semana'* - Gastos da semana\n"
+            "👉 *'/mes'* - Balanço do mês\n"
+            "👉 *'/categorias'* - Gastos por categoria\n\n"
+            "💰 *Ganhos e Parcelas:*\n"
+            "👉 (Em breve via WhatsApp, use o Telegram para gestão completa)"
         )
         await client.send_message(user_id, msg)
         state_manager.set_state(user_id, START)
@@ -54,7 +59,7 @@ async def handle_message(message_body):
 
     # --- Relatórios ---
     if cmd == "/hoje":
-        hoje = datetime.now()
+        hoje = datetime.now().date()
         gastos = crud.get_gastos_periodo(db_user_id, hoje, hoje)
         total = sum(g.valor for g in gastos)
         msg = f"📅 *Gastos de Hoje* ({hoje.strftime('%d/%m')}):\n\n"
@@ -62,8 +67,36 @@ async def handle_message(message_body):
             msg += "Nenhum gasto registrado."
         else:
             for g in gastos:
-                msg += f"• {g.categoria}: R$ {g.valor:.2f} ({g.descricao})\n"
+                nome = g.descricao if g.descricao else g.categoria.capitalize()
+                msg += f"• {nome}: R$ {g.valor:.2f}\n"
             msg += f"\n🔴 *Total: R$ {total:.2f}*"
+        await client.send_message(user_id, msg)
+        return
+
+    if cmd == "/semana":
+        hoje = datetime.now().date()
+        inicio_semana = hoje - timedelta(days=hoje.weekday())
+        gastos = crud.get_gastos_periodo(db_user_id, inicio_semana, hoje)
+        total = sum(g.valor for g in gastos)
+        
+        msg = f"📅 *Gastos da Semana* ({inicio_semana.strftime('%d/%m')} - {hoje.strftime('%d/%m')}):\n\n"
+        if not gastos:
+            msg += "Nenhum gasto registrado nesta semana."
+        else:
+            # Agrupar por categoria para resumo
+            cats = {}
+            for g in gastos:
+                c = g.categoria.capitalize()
+                cats[c] = cats.get(c, 0) + g.valor
+            
+            # Ordenar categorias por valor
+            sorted_cats = sorted(cats.items(), key=lambda x: x[1], reverse=True)
+            
+            for cat, val in sorted_cats:
+                msg += f"• {cat}: R$ {val:.2f}\n"
+                
+            msg += f"\n🔴 *Total da Semana: R$ {total:.2f}*"
+            
         await client.send_message(user_id, msg)
         return
 
@@ -74,6 +107,28 @@ async def handle_message(message_body):
             total_parcelas = crud.total_mensal_parcelas(db, db_user_id)
             
         msg = formatar_balanco(total_ganhos, total_gastos, total_parcelas)
+        await client.send_message(user_id, msg)
+        return
+
+    if cmd == "/categorias":
+        agora = datetime.now()
+        gastos_cat = crud.get_gastos_por_categoria(db_user_id, agora.month, agora.year)
+        
+        msg = f"📂 *Gastos por Categoria ({agora.strftime('%m/%Y')})*\n\n"
+        
+        if not gastos_cat:
+            msg += "Nenhum gasto registrado neste mês."
+        else:
+            # Ordenar por valor
+            gastos_cat.sort(key=lambda x: x['total'], reverse=True)
+            total_mes = sum(item['total'] for item in gastos_cat)
+            
+            for item in gastos_cat:
+                percentual = (item['total'] / total_mes * 100) if total_mes > 0 else 0
+                msg += f"• *{item['categoria'].capitalize()}*: R$ {item['total']:.2f} ({percentual:.1f}%)\n"
+                
+            msg += f"\n🔴 *Total Geral: R$ {total_mes:.2f}*"
+            
         await client.send_message(user_id, msg)
         return
 
@@ -89,6 +144,6 @@ async def handle_message(message_body):
             crud.add_gasto(db_user_id, valor, categoria, descricao, metodo="WhatsApp")
             await client.send_message(user_id, f"✅ Gasto registrado:\nR$ {valor:.2f} em {categoria} ({descricao})")
         else:
-            await client.send_message(user_id, "❓ Não entendi. Tente algo como '35 uber' ou use /menu.")
+            await client.send_message(user_id, "❓ Não entendi. Tente algo como '35 uber' ou use /menu para ver as opções.")
 
     # Implementar mais fluxos conforme necessário

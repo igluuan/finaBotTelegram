@@ -8,17 +8,35 @@ from unittest.mock import AsyncMock, MagicMock
 
 # --- Database Fixtures ---
 
+@pytest.fixture(autouse=True)
+def mock_config(mocker):
+    mocker.patch("finbot.config.ALLOWED_USER_ID", None)
+    # Também patch em bot.config se existir
+    mocker.patch.dict("os.environ", {"ALLOWED_USER_ID": ""})
+
 @pytest.fixture(scope="session")
 def engine():
-    return create_engine("sqlite:///:memory:")
+    from sqlalchemy.pool import StaticPool
+    return create_engine(
+        "sqlite:///:memory:", 
+        connect_args={"check_same_thread": False}, 
+        poolclass=StaticPool
+    )
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def db_session(engine):
     Base.metadata.create_all(engine)
     connection = engine.connect()
     transaction = connection.begin()
     Session = sessionmaker(bind=connection)
     session = Session()
+    
+    # Patch global do get_db para usar essa sessão
+    original_get_db = crud_module.get_db
+    
+    # Patch do SessionLocal no crud module para usar nosso engine/session
+    crud_module.engine = engine
+    crud_module.SessionLocal = sessionmaker(bind=engine)
 
     yield session
 
@@ -26,7 +44,9 @@ def db_session(engine):
     transaction.rollback()
     connection.close()
     Base.metadata.drop_all(engine)
-
+    
+    # Restore
+    # crud_module.get_db = original_get_db # Não é fácil restaurar generator, mas ok para testes
 
 @pytest.fixture
 def override_get_db(db_session):

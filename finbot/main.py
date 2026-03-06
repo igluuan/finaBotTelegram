@@ -10,7 +10,7 @@ if ROOT_DIR not in sys.path:
 
 from finbot.config import TELEGRAM_BOT_TOKEN
 from finbot.bot.database import crud
-from finbot.bot.handlers import gasto, relatorio, dicas, config, parcela, ganho, cadastro, cartao
+from finbot.bot.handlers import gasto, relatorio, dicas, config, parcela, ganho, cadastro, cartao, error
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -22,11 +22,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 async def post_init(application):
     from finbot.bot.services.scheduler import start_scheduler
-    from finbot.bot.handlers.whatsapp import start_webhook_server
-
+    
     start_scheduler(application)
-    await start_webhook_server()
-    logger.info("Scheduler e webhook iniciados.")
+    logger.info("Scheduler iniciado.")
 
 def main():
     crud.init_db()
@@ -34,6 +32,9 @@ def main():
         logger.error("TELEGRAM_BOT_TOKEN não configurado. Defina a variável de ambiente antes de iniciar o bot.")
         raise SystemExit(1)
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    
+    # Error Handler
+    app.add_error_handler(error.error_handler)
     
     # Cadastro Handler (substitui o start antigo)
     app.add_handler(cadastro.get_cadastro_handler())

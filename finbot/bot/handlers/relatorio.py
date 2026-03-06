@@ -3,13 +3,30 @@ from telegram.ext import ContextTypes
 from ..database import crud
 from datetime import datetime, timedelta
 from ..decorators import garantir_usuario
+import asyncio
+
+def _get_gastos_hoje_db(user_id, hoje_data):
+    gastos = crud.get_gastos_periodo(user_id, hoje_data, hoje_data)
+    total = sum(g.valor for g in gastos)
+    return gastos, total
+
+def _get_gastos_semana_db(user_id, inicio, fim):
+    gastos = crud.get_gastos_periodo(user_id, inicio, fim)
+    total = sum(g.valor for g in gastos)
+    return gastos, total
+
+def _get_dados_mes_db(user_id, mes, ano):
+    gastos = crud.get_gastos_mes(user_id, mes, ano)
+    total = sum(g.valor for g in gastos)
+    cats = crud.get_gastos_por_categoria(user_id, mes, ano)
+    return gastos, total, cats
 
 @garantir_usuario
 async def hoje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     hoje_data = datetime.now().date()
-    gastos = crud.get_gastos_periodo(user_id, hoje_data, hoje_data)
-    total = sum(g.valor for g in gastos)
+    
+    gastos, total = await asyncio.to_thread(_get_gastos_hoje_db, user_id, hoje_data)
     
     msg = f"📅 *Gastos de Hoje ({hoje_data.strftime('%d/%m')})*\n\n"
     if not gastos:
@@ -35,8 +52,8 @@ async def semana(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     hoje_data = datetime.now().date()
     inicio_semana = hoje_data - timedelta(days=hoje_data.weekday())
-    gastos = crud.get_gastos_periodo(user_id, inicio_semana, hoje_data)
-    total = sum(g.valor for g in gastos)
+    
+    gastos, total = await asyncio.to_thread(_get_gastos_semana_db, user_id, inicio_semana, hoje_data)
     
     msg = f"📅 *Gastos da Semana*\n\n"
     msg += f"💰 *Total: R$ {total:.2f}*".replace('.', ',') + "\n\n"
@@ -72,8 +89,7 @@ async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mes_atual = agora.month
     ano_atual = agora.year
     
-    gastos = crud.get_gastos_mes(user_id, mes_atual, ano_atual)
-    total = sum(g.valor for g in gastos)
+    gastos, total, cats = await asyncio.to_thread(_get_dados_mes_db, user_id, mes_atual, ano_atual)
     
     msg = f"📅 *Resumo de {mes_atual}/{ano_atual}*\n\n"
     msg += f"💸 *Total: R$ {total:.2f}*".replace('.', ',') + "\n\n"
@@ -91,7 +107,6 @@ async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
              msg += f"• {m}: {val_fmt}\n"
         msg += "\n"
     
-    cats = crud.get_gastos_por_categoria(user_id, mes_atual, ano_atual)
     # Sort by total desc
     cats.sort(key=lambda x: x['total'], reverse=True)
     

@@ -15,9 +15,13 @@ from finbot.bot.database.models import Parcela
 def mock_update(mocker):
     update = MagicMock(spec=Update)
     update.message = MagicMock(spec=Message)
-    update.message.from_user = MagicMock(spec=User)
-    update.message.from_user.id = 123
-    update.effective_user = update.message.from_user
+    
+    user = MagicMock(spec=User)
+    user.id = 123
+    user.first_name = "Test User"
+    
+    update.message.from_user = user
+    update.effective_user = user
     update.message.text = "4521"
     update.message.reply_text = AsyncMock()
     return update

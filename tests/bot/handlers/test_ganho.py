@@ -8,8 +8,11 @@ from finbot.bot.handlers.ganho import start_add_ganho, receber_tipo, receber_val
 def mock_update(mocker):
     update = MagicMock(spec=Update)
     update.message = MagicMock(spec=Message)
-    update.message.from_user = MagicMock(spec=User)
-    update.message.from_user.id = 123
+    user = MagicMock(spec=User)
+    user.id = 123
+    user.first_name = "Test User"
+    update.message.from_user = user
+    update.effective_user = user
     update.message.text = "1 - Salário"
     update.message.reply_text = AsyncMock()
     return update

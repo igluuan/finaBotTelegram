@@ -8,12 +8,34 @@ from ..services.ai_service import gerar_dica_parcela
 from ..decorators import garantir_usuario
 from datetime import date, timedelta
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 # Estados da conversa
 CARTAO, DESCRICAO, VALOR, TOTAL_PARCELAS, PARCELA_ATUAL, VENCIMENTO = range(6)
 
+def _salvar_parcela_db(user_id, dados):
+    with get_db() as db:
+        parcela = criar_parcela(db, user_id, dados)
+        total_mensal = total_mensal_parcelas(db, user_id)
+    return parcela, total_mensal
+
+def _listar_parcelas_db(user_id, cartao_filtro):
+    with get_db() as db:
+        parcelas = listar_parcelas_ativas(db, user_id, cartao=cartao_filtro)
+        total_mensal = total_mensal_parcelas(db, user_id)
+    return parcelas, total_mensal
+
+def _quitar_parcela_db(user_id, parcela_id):
+    with get_db() as db:
+        sucesso = quitar_parcela(db, parcela_id, user_id)
+    return sucesso
+
+def _listar_parcelas_proximo_mes_db(user_id):
+    with get_db() as db:
+        parcelas = listar_parcelas_ativas(db, user_id)
+    return parcelas
 
 # ── /add-parcela ──────────────────────────────────────────────
 
@@ -103,10 +125,8 @@ async def receber_vencimento(update: Update, context: ContextTypes.DEFAULT_TYPE)
     dados = context.user_data
     user_id = update.effective_user.id
 
-    # Salvar no banco
-    with get_db() as db:
-        parcela = criar_parcela(db, user_id, dados)
-        total_mensal = total_mensal_parcelas(db, user_id)
+    # Salvar no banco (async)
+    parcela, total_mensal = await asyncio.to_thread(_salvar_parcela_db, user_id, dados)
 
     # Calcular data de término
     meses_restantes = parcela.total_parcelas - parcela.parcela_atual
@@ -155,10 +175,8 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def listar_parcelas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     cartao_filtro = context.args[0] if context.args else None
-
-    with get_db() as db:
-        parcelas = listar_parcelas_ativas(db, user_id, cartao=cartao_filtro)
-        total_mensal = total_mensal_parcelas(db, user_id)
+    
+    parcelas, total_mensal = await asyncio.to_thread(_listar_parcelas_db, user_id, cartao_filtro)
 
     if not parcelas:
         filtro_txt = f" do cartão {cartao_filtro}" if cartao_filtro else ""
@@ -215,9 +233,8 @@ async def quitar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ ID inválido.")
         return
-
-    with get_db() as db:
-        sucesso = quitar_parcela(db, parcela_id, update.effective_user.id)
+    
+    sucesso = await asyncio.to_thread(_quitar_parcela_db, update.effective_user.id, parcela_id)
 
     if sucesso:
         await update.message.reply_text(f"✅ Parcela `#{parcela_id}` marcada como quitada!", parse_mode="Markdown")
@@ -229,8 +246,8 @@ async def quitar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def proximo_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    with get_db() as db:
-        parcelas = listar_parcelas_ativas(db, user_id)
+    
+    parcelas = await asyncio.to_thread(_listar_parcelas_proximo_mes_db, user_id)
 
     # Filtra parcelas que ainda terão parcelas no próximo mês
     ativas_proximo = [p for p in parcelas if p.parcelas_restantes > 0]

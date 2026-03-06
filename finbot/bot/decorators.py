@@ -14,6 +14,7 @@ def garantir_usuario(func):
             return await func(update, context, *args, **kwargs)
             
         user_id = update.effective_user.id
+        
         user = crud.get_user(user_id)
         
         if not user:

@@ -9,6 +9,7 @@ from ..services import parser, validators
 from ..decorators import garantir_usuario
 from .. import ui
 from datetime import date
+import asyncio
 
 TIPO, VALOR, DATA, DESCRICAO, RECORRENTE, DIA = range(6)
 
@@ -26,6 +27,22 @@ TECLADO_CATEGORIAS = ReplyKeyboardMarkup(
      ["5 - Bônus / 13º", "6 - Outros"]],
     one_time_keyboard=True, resize_keyboard=True
 )
+
+def _executar_finalizar_ganho_db(user_id, dados):
+    with get_db() as db:
+        criar_ganho(db, user_id, dados)
+        total_ganho_mes = total_ganhos_mes(db, user_id)
+        total_gasto_mes = total_gastos_mes(db, user_id)
+        total_parcela_mes = total_mensal_parcelas(db, user_id)
+    return total_ganho_mes, total_gasto_mes, total_parcela_mes
+
+def _executar_listar_ganhos_db(user_id):
+    with get_db() as db:
+        ganhos = listar_ganhos_mes(db, user_id)
+        total = total_ganhos_mes(db, user_id)
+        gastos = total_gastos_mes(db, user_id)
+        parcelas = total_mensal_parcelas(db, user_id)
+    return ganhos, total, gastos, parcelas
 
 @garantir_usuario
 async def start_add_ganho(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,11 +156,9 @@ async def _finalizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = context.user_data
     user_id = update.effective_user.id
 
-    with get_db() as db:
-        criar_ganho(db, user_id, dados)
-        total_ganho_mes  = total_ganhos_mes(db, user_id)
-        total_gasto_mes  = total_gastos_mes(db, user_id)
-        total_parcela_mes = total_mensal_parcelas(db, user_id)
+    total_ganho_mes, total_gasto_mes, total_parcela_mes = await asyncio.to_thread(
+        _executar_finalizar_ganho_db, user_id, dados
+    )
 
     recorrente_txt = f"🔄 Recorrente — todo dia {dados.get('dia_recebimento', '?')}" if dados.get("recorrente") else "📌 Registro único"
     
@@ -172,11 +187,8 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def listar_ganhos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    with get_db() as db:
-        ganhos = listar_ganhos_mes(db, user_id)
-        total  = total_ganhos_mes(db, user_id)
-        gastos = total_gastos_mes(db, user_id)
-        parcelas = total_mensal_parcelas(db, user_id)
+    
+    ganhos, total, gastos, parcelas = await asyncio.to_thread(_executar_listar_ganhos_db, user_id)
 
     if not ganhos:
         await update.message.reply_text("Nenhum ganho registrado este mês.")
