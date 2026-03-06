@@ -6,6 +6,7 @@ Este documento descreve a estrutura de testes do projeto FinaBotTelegram, como e
 
 Os testes estão localizados no diretório `tests/` e seguem a mesma estrutura do código fonte:
 
+main
 ```
 tests/
 ├── bot/
