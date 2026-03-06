@@ -21,6 +21,10 @@ jobs:
     - name: Adding Known Hosts
       run: ssh-keyscan -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_HOST }} > ~/.ssh/known_hosts
 
+    - name: Create Target Directory
+      run: |
+        ssh -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /home/${{ secrets.VPS_USER }}/finaBotTelegram"
+
     - name: Deploy with rsync
       run: |
         rsync -avz -e "ssh -p ${{ secrets.VPS_PORT }}" --exclude='.git' --exclude='venv' --exclude='node_modules' ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/home/${{ secrets.VPS_USER }}/finaBotTelegram
