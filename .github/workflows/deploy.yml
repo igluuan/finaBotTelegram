@@ -1,40 +1,28 @@
-name: Deploy to VPS
+name: Deploy VPS
 
 on:
   push:
-    branches: [ develop ]
+    branches:
+      - main
 
 jobs:
   deploy:
+    name: Deploy na VPS
     runs-on: ubuntu-latest
-    
+    concurrency: deploy-group
+
     steps:
-    - uses: actions/checkout@v2
-    
-    - name: Install SSH Key
-      uses: shimataro/ssh-key-action@v2
-      with:
-        key: ${{ secrets.VPS_SSH_KEY }}
-        known_hosts: "placeholder" # Valor temporário, será sobrescrito pelo ssh-keyscan
-        if_key_exists: replace
-
-    - name: Adding Known Hosts
-      run: ssh-keyscan -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_HOST }} > ~/.ssh/known_hosts
-
-    - name: Create Target Directory
-      run: |
-        ssh -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /home/${{ secrets.VPS_USER }}/finaBotTelegram"
-
-    - name: Deploy with rsync
-      run: |
-        rsync -avz -e "ssh -p ${{ secrets.VPS_PORT }}" --exclude='.git' --exclude='venv' --exclude='node_modules' ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/home/${{ secrets.VPS_USER }}/finaBotTelegram
-
-    - name: Restart Docker Services
-      run: |
-        ssh -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
-          cd /home/${{ secrets.VPS_USER }}/finaBotTelegram
-          docker compose down --remove-orphans
-          docker compose build
-          docker compose up -d
-          docker compose ps
-        EOF
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            cd /home/deploy/finaBotTelegram
+            git pull origin main
+            source .venv/bin/activate
+            pip install -r finbot/requirements.txt --quiet
+            systemctl restart finbot
+            echo "Deploy concluído: $(date)"
