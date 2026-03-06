@@ -5,6 +5,7 @@ from telegram.ext import (
 )
 from ..database.crud import criar_parcela, listar_parcelas_ativas, quitar_parcela, total_mensal_parcelas, get_db
 from ..services.ai_service import gerar_dica_parcela
+from ..decorators import garantir_usuario
 from datetime import date, timedelta
 import logging
 
@@ -16,6 +17,7 @@ CARTAO, DESCRICAO, VALOR, TOTAL_PARCELAS, PARCELA_ATUAL, VENCIMENTO = range(6)
 
 # ── /add-parcela ──────────────────────────────────────────────
 
+@garantir_usuario
 async def start_add_parcela(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
