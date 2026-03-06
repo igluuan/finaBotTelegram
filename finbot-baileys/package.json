@@ -1,15 +1,17 @@
 {
   "name": "finbot-baileys",
   "version": "1.0.0",
-  "description": "WhatsApp Adapter for FinBot using whatsapp-web.js",
+  "description": "WhatsApp Adapter for FinBot using Baileys",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "whatsapp-web.js": "^1.26.0",
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.18",
     "axios": "^1.6.0",
     "express": "^4.18.2",
+    "pino": "^9.4.0",
     "qrcode": "^1.5.3"
   }
 }
