@@ -15,11 +15,11 @@ jobs:
       uses: shimataro/ssh-key-action@v2
       with:
         key: ${{ secrets.VPS_SSH_KEY }}
-        known_hosts: ${{ secrets.VPS_KNOWN_HOSTS }} # Opcional
+        known_hosts: "placeholder" # Valor temporário, será sobrescrito pelo ssh-keyscan
         if_key_exists: replace
 
     - name: Adding Known Hosts
-      run: ssh-keyscan -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+      run: ssh-keyscan -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_HOST }} > ~/.ssh/known_hosts
 
     - name: Deploy with rsync
       run: |
