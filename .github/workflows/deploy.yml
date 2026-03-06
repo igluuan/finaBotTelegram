@@ -33,8 +33,8 @@ jobs:
       run: |
         ssh -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
           cd /home/${{ secrets.VPS_USER }}/finaBotTelegram
-          docker-compose down --remove-orphans
-          docker-compose build
-          docker-compose up -d
-          docker-compose ps
+          docker compose down --remove-orphans
+          docker compose build
+          docker compose up -d
+          docker compose ps
         EOF
