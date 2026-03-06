@@ -1,0 +1,30 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finbot_python
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - WHATSAPP_ADAPTER_URL=http://whatsapp-adapter:3000/send-message
+    volumes:
+      - ./finbot.db:/app/finbot.db
+    depends_on:
+      - whatsapp-adapter
+    ports:
+      - "8000:8000"
+    command: sh -c "python finbot/main.py & python finbot/main_api.py"
+
+  whatsapp-adapter:
+    build:
+      context: ./finbot-baileys
+      dockerfile: Dockerfile
+    container_name: finbot_whatsapp
+    restart: unless-stopped
+    volumes:
+      - ./auth_info_baileys:/app/auth_info_baileys
+    ports:
+      - "3000:3000"
+    environment:
+      - WEBHOOK_URL=http://bot:8000/webhook

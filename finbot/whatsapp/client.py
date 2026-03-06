@@ -1,12 +1,13 @@
 import httpx
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 class WhatsAppClient:
     def __init__(self):
-        # URL do serviço Node.js local que roda o Baileys
-        self.baileys_url = "http://localhost:3000/send-message"
+        # URL do serviço Node.js (agora configurável via variável de ambiente para Docker)
+        self.baileys_url = os.getenv("WHATSAPP_ADAPTER_URL", "http://localhost:3000/send-message")
 
     async def send_message(self, to: str, text: str):
         payload = {

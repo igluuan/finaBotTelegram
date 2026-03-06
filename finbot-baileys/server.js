@@ -12,7 +12,8 @@ const app = express();
 app.use(express.json());
 
 const PORT = 3000;
-const WEBHOOK_URL = 'http://localhost:8000/webhook';
+// URL do webhook Python configurável via ambiente
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:8000/webhook';
 
 let sock; // Global socket instance
 
