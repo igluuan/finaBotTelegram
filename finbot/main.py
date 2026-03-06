@@ -22,8 +22,11 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 async def post_init(application):
     from finbot.bot.services.scheduler import start_scheduler
+    from finbot.bot.handlers.whatsapp import start_webhook_server
+
     start_scheduler(application)
-    logger.info("Scheduler iniciado.")
+    await start_webhook_server()
+    logger.info("Scheduler e webhook iniciados.")
 
 def main():
     crud.init_db()

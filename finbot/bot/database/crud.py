@@ -169,6 +169,29 @@ def update_user_fechamento(telegram_id: int, dia_fechamento: int):
             user.dia_fechamento = dia_fechamento
             db.commit()
 
+def get_user_by_phone(phone: str) -> Optional[Usuario]:
+    with get_db() as db:
+        return db.query(Usuario).filter(
+            Usuario.phone == phone
+        ).first()
+
+def get_or_create_user_by_phone(phone: str, nome: str = "Usuário WhatsApp") -> Usuario:
+    with get_db() as db:
+        user = db.query(Usuario).filter(Usuario.phone == phone).first()
+        if not user:
+            # Gera um telegram_id fictício negativo para não colidir com IDs reais
+            # Limita a 2^31 para garantir que cabe em Integers
+            fake_id = (abs(hash(phone)) % (2**31)) * -1
+            user = Usuario(
+                telegram_id=fake_id,
+                nome=nome,
+                phone=phone
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
+
 # --- Gastos ---
 def add_gasto(user_id: int, valor: float, categoria: str, descricao: str, metodo: str = None, data_registro: date | None = None) -> Gasto:
     with get_db() as db:

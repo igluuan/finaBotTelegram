@@ -3,3 +3,4 @@ sqlalchemy
 apscheduler
 google-genai
 python-dotenv
+aiohttp

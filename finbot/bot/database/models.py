@@ -21,6 +21,7 @@ class Usuario(Base):
     nome = Column(String)
     moeda = Column(String, default='BRL')
     dia_fechamento = Column(Integer, default=1)
+    phone = Column(String, nullable=True)
     created_at = Column(DateTime, default=func.now())
 
     gastos = relationship("Gasto", back_populates="usuario")
