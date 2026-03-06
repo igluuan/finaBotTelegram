@@ -3,6 +3,8 @@ finbot/.env
 # Arquivos temporários / cache
 __pycache__/
 *.py[cod]
+.coverage
+htmlcov/
 
 # Ambiente virtual
 .venv/
@@ -11,3 +13,11 @@ venv/
 # Banco de dados local
 finbot.db
 .env
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Baileys Auth (Credenciais)
+auth_info_baileys/
