@@ -133,6 +133,10 @@ app.get('/status', (req, res) => {
 });
 
 app.post('/send-message', async (req, res) => {
+    if (ADAPTER_API_KEY && req.headers['x-api-key'] !== ADAPTER_API_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const { to, text } = req.body;
 
     if (!to || !text) {

@@ -8,6 +8,8 @@ services:
     env_file: .env
     environment:
       - WHATSAPP_ADAPTER_URL=http://whatsapp-adapter:3000/send-message
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:-}
+      - WHATSAPP_ADAPTER_API_KEY=${WHATSAPP_ADAPTER_API_KEY:-}
     volumes:
       - ./finbot.db:/app/finbot.db
     depends_on:
@@ -28,3 +30,5 @@ services:
       - "3000:3000"
     environment:
       - WEBHOOK_URL=http://bot:8000/webhook
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:-}
+      - WHATSAPP_ADAPTER_API_KEY=${WHATSAPP_ADAPTER_API_KEY:-}
