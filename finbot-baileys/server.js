@@ -2,12 +2,20 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 const qrcode = require('qrcode');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:8000/webhook';
+const WEBHOOK_SECRET = process.env.WHATSAPP_WEBHOOK_SECRET || '';
+const ADAPTER_API_KEY = process.env.WHATSAPP_ADAPTER_API_KEY || '';
+
+function signPayload(payload) {
+    if (!WEBHOOK_SECRET) return '';
+    return crypto.createHmac('sha256', WEBHOOK_SECRET).update(payload).digest('hex');
+}
 
 // ── Cliente WhatsApp ──────────────────────────────────────────
 
@@ -44,13 +52,22 @@ client.on('disconnected', (reason) => {
 client.on('message', async (msg) => {
     if (msg.fromMe) return;
     try {
-        const payload = {
+        const payloadObj = {
             from: msg.from.replace('@c.us', ''),
             text: msg.body,
             name: msg._data?.notifyName || 'Usuário',
+            message_id: msg.id?._serialized || null,
         };
-        console.log(`Mensagem recebida de ${payload.from}: ${payload.text}`);
-        await axios.post(WEBHOOK_URL, payload);
+        const payload = JSON.stringify(payloadObj);
+        const signature = signPayload(payload);
+
+        console.log(`Mensagem recebida de ${payloadObj.from}`);
+        await axios.post(WEBHOOK_URL, payload, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(signature ? { 'X-Signature': signature } : {}),
+            },
+        });
     } catch (error) {
         console.error('Erro ao enviar para webhook:', error.message);
     }
@@ -86,6 +103,10 @@ app.get('/status', (req, res) => {
 
 // Enviar mensagem (chamado pelo Python)
 app.post('/send-message', async (req, res) => {
+    if (ADAPTER_API_KEY && req.headers['x-api-key'] !== ADAPTER_API_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const { to, text } = req.body;
     if (!to || !text) {
         return res.status(400).json({ error: 'Parâmetros "to" e "text" são obrigatórios' });
@@ -93,7 +114,7 @@ app.post('/send-message', async (req, res) => {
     try {
         const jid = to.includes('@c.us') ? to : `${to}@c.us`;
         await client.sendMessage(jid, text);
-        console.log(`Mensagem enviada para ${to}: ${text}`);
+        console.log(`Mensagem enviada para ${to}`);
         res.json({ success: true });
     } catch (error) {
         console.error('Erro ao enviar mensagem:', error);
