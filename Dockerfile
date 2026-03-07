@@ -10,8 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements-dev.txt .
-RUN pip install --no-cache-dir -r requirements-dev.txt
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements-dev.txt
 
 # Copy application code
 COPY . .
@@ -23,4 +24,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Entrypoint script (will be defined by command in docker-compose)
-CMD ["python", "finbot/main_api.py"]
+CMD ["python", "main_api.py"]

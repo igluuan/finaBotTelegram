@@ -1,102 +1,282 @@
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason
-} = require('@whiskeysockets/baileys');
 const express = require('express');
 const axios = require('axios');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
 const pino = require('pino');
+const crypto = require('crypto');
+const {
+    default: makeWASocket,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    useMultiFileAuthState,
+} = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 
 const app = express();
 app.use(express.json());
 
-const PORT = 3000;
-// URL do webhook Python configurável via ambiente
+const PORT = process.env.PORT || 3000;
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:8000/webhook';
+const AUTH_FOLDER = process.env.BAILEYS_AUTH_FOLDER || './baileys_auth';
+const ADAPTER_API_KEY = process.env.WHATSAPP_ADAPTER_API_KEY || '';
+const WEBHOOK_SECRET = process.env.WHATSAPP_WEBHOOK_SECRET || '';
 
-let sock; // Global socket instance
+let sock = null;
+let isConnected = false;
+let connectedNumber = null;
+let latestQrCode = null;
 
-async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+function formatPhoneFromJid(jid) {
+    if (!jid) return null;
+    return jid
+        .replace('@s.whatsapp.net', '')
+        .replace('@c.us', '')
+        .replace('@lid', '');
+}
+
+function isSupportedUserJid(jid) {
+    if (!jid) return false;
+    return (
+        jid.endsWith('@s.whatsapp.net')
+        || jid.endsWith('@c.us')
+        || jid.endsWith('@lid')
+    );
+}
+
+function extractSenderId(message) {
+    const remoteJid = message?.key?.remoteJid || null;
+    const participantJid = message?.key?.participant || null;
+
+    if (isSupportedUserJid(remoteJid) && !remoteJid.endsWith('@lid')) {
+        return formatPhoneFromJid(remoteJid);
+    }
+    if (isSupportedUserJid(participantJid)) {
+        return formatPhoneFromJid(participantJid);
+    }
+    if (isSupportedUserJid(remoteJid)) {
+        return formatPhoneFromJid(remoteJid);
+    }
+    return null;
+}
+
+function unwrapMessageContent(message) {
+    let current = message;
+    // Some message types wrap the real payload in nested containers.
+    while (current) {
+        if (current.ephemeralMessage?.message) {
+            current = current.ephemeralMessage.message;
+            continue;
+        }
+        if (current.viewOnceMessageV2?.message) {
+            current = current.viewOnceMessageV2.message;
+            continue;
+        }
+        if (current.viewOnceMessage?.message) {
+            current = current.viewOnceMessage.message;
+            continue;
+        }
+        if (current.documentWithCaptionMessage?.message) {
+            current = current.documentWithCaptionMessage.message;
+            continue;
+        }
+        break;
+    }
+    return current;
+}
+
+function parseIncomingText(message) {
+    const normalized = unwrapMessageContent(message);
+    if (!normalized) return null;
+    if (normalized.conversation) return normalized.conversation;
+    if (normalized.extendedTextMessage?.text) return normalized.extendedTextMessage.text;
+    if (normalized.imageMessage?.caption) return normalized.imageMessage.caption;
+    if (normalized.videoMessage?.caption) return normalized.videoMessage.caption;
+    if (normalized.documentMessage?.caption) return normalized.documentMessage.caption;
+    return null;
+}
+
+async function startBaileys() {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
+    const { version } = await fetchLatestBaileysVersion();
 
     sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
+        version,
         auth: state,
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            qrcode.generate(qr, { small: true });
-        }
-
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Conexão fechada devido a ', lastDisconnect.error, ', reconectando ', shouldReconnect);
-            if (shouldReconnect) {
-                connectToWhatsApp();
-            }
-        } else if (connection === 'open') {
-            console.log('Conexão aberta com sucesso!');
-        }
+        printQRInTerminal: false,
+        logger: pino({ level: 'warn' }),
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type === 'notify') {
-            for (const msg of messages) {
-                if (!msg.key.fromMe) {
-                    try {
-                        const messageContent = msg.message.conversation || msg.message.extendedTextMessage?.text;
-                        
-                        if (messageContent) {
-                            const payload = {
-                                from: msg.key.remoteJid.replace('@s.whatsapp.net', ''),
-                                text: messageContent,
-                                name: msg.pushName || 'Usuário'
-                            };
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-                            console.log(`Mensagem recebida de ${payload.from}: ${payload.text}`);
-                            await axios.post(WEBHOOK_URL, payload);
-                        }
-                    } catch (error) {
-                        console.error('Erro ao enviar para webhook:', error.message);
-                    }
-                }
+        if (qr) {
+            latestQrCode = await qrcode.toDataURL(qr);
+            console.log('QR code generated - open GET /qr');
+        }
+
+        if (connection === 'open') {
+            isConnected = true;
+            latestQrCode = null;
+            connectedNumber = formatPhoneFromJid(sock.user?.id);
+            console.log(`WhatsApp connected: ${connectedNumber || 'unknown'}`);
+        }
+
+        if (connection === 'close') {
+            isConnected = false;
+            connectedNumber = null;
+
+            const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`WhatsApp disconnected. code=${statusCode} reconnect=${shouldReconnect}`);
+
+            if (shouldReconnect) {
+                await startBaileys();
+            } else {
+                console.log('Session logged out. Re-auth with /qr');
             }
+        }
+    });
+
+    sock.ev.on('messages.upsert', async ({ type, messages }) => {
+        if (type !== 'notify') {
+            return;
+        }
+
+        const message = messages?.[0];
+        if (!message) {
+            console.log('Ignoring upsert with empty message payload');
+            return;
+        }
+        if (message.key.fromMe) {
+            console.log('Ignoring own outgoing message (fromMe=true)');
+            return;
+        }
+
+        const remoteJid = message.key.remoteJid;
+        if (!isSupportedUserJid(remoteJid)) {
+            console.log(`Ignoring non-user jid: ${remoteJid || 'unknown'}`);
+            return;
+        }
+
+        const text = parseIncomingText(message.message);
+        if (!text) {
+            console.log(`Ignoring message without supported text payload from ${remoteJid}`);
+            return;
+        }
+
+        const senderId = extractSenderId(message);
+        if (!senderId) {
+            console.log(`Ignoring message with unresolved sender id. remoteJid=${remoteJid || 'unknown'}`);
+            return;
+        }
+
+        const payload = {
+            from: senderId,
+            reply_to: remoteJid,
+            text,
+            name: message.pushName || 'Usuario',
+            message_id: message.key.id || null,
+            timestamp: Number(message.messageTimestamp) || Math.floor(Date.now() / 1000),
+        };
+
+        try {
+            const rawBody = JSON.stringify(payload);
+            const headers = { 'Content-Type': 'application/json' };
+            if (WEBHOOK_SECRET) {
+                headers['X-Signature'] = crypto
+                    .createHmac('sha256', WEBHOOK_SECRET)
+                    .update(rawBody)
+                    .digest('hex');
+            }
+
+            console.log(`Incoming message from ${payload.from}: ${payload.text}`);
+            await axios.post(WEBHOOK_URL, rawBody, {
+                headers,
+                timeout: 5000,
+            });
+        } catch (error) {
+            console.error('Failed to send webhook:', error.message);
         }
     });
 }
 
-// Endpoint para enviar mensagens
+app.get('/qr', (req, res) => {
+    if (!latestQrCode) {
+        return res.send('<h2>WhatsApp already connected or waiting for next QR.</h2>');
+    }
+
+    res.send(`
+        <html>
+            <body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column">
+                <h2>Scan QR code</h2>
+                <img src="${latestQrCode}" />
+                <p>Refresh if QR expires</p>
+            </body>
+        </html>
+    `);
+});
+
+app.get('/status', (req, res) => {
+    res.json({
+        connected: isConnected,
+        number: connectedNumber,
+    });
+});
+
 app.post('/send-message', async (req, res) => {
+    if (ADAPTER_API_KEY && req.headers['x-api-key'] !== ADAPTER_API_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const { to, text } = req.body;
-    
     if (!to || !text) {
-        return res.status(400).json({ error: 'Parâmetros "to" e "text" são obrigatórios' });
+        return res.status(400).json({ error: 'Parameters "to" and "text" are required' });
+    }
+
+    if (!sock || !isConnected) {
+        return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
     try {
-        const jid = to.includes('@s.whatsapp.net') ? to : `${to}@s.whatsapp.net`;
-        if (sock) {
-            await sock.sendMessage(jid, { text: text });
-            console.log(`Mensagem enviada para ${to}: ${text}`);
-            res.json({ success: true });
-        } else {
-            res.status(503).json({ error: 'WhatsApp não conectado' });
-        }
+        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+        await sock.sendMessage(jid, { text });
+        console.log(`Message sent to ${to}: ${text}`);
+        return res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao enviar mensagem:', error);
-        res.status(500).json({ error: 'Falha ao enviar mensagem' });
+        console.error('Failed to send message:', error.message);
+        return res.status(500).json({ error: 'Failed to send message' });
     }
 });
 
-connectToWhatsApp();
+app.post('/send-state-typing', async (req, res) => {
+    if (ADAPTER_API_KEY && req.headers['x-api-key'] !== ADAPTER_API_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
 
-app.listen(PORT, () => {
-    console.log(`Servidor Baileys rodando na porta ${PORT}`);
+    const { to } = req.body;
+    if (!to) {
+        return res.status(400).json({ error: 'Parameter "to" is required' });
+    }
+
+    if (!sock || !isConnected) {
+        return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+
+    try {
+        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+        await sock.presenceSubscribe(jid);
+        await sock.sendPresenceUpdate('composing', jid);
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('Failed to send typing state:', error.message);
+        return res.status(500).json({ error: 'Failed to send typing state' });
+    }
+});
+
+app.listen(PORT, async () => {
+    console.log(`Baileys server running on port ${PORT}`);
+    console.log(`Webhook target: ${WEBHOOK_URL}`);
+    console.log(`Webhook signature enabled: ${Boolean(WEBHOOK_SECRET)}`);
+    await startBaileys();
 });

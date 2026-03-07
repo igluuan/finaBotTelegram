@@ -4,7 +4,43 @@ from sqlalchemy.orm import sessionmaker
 from finbot.bot.database.models import Base
 from finbot.bot.database.crud import get_db
 import finbot.bot.database.crud as crud_module
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+class _PatchProxy:
+    def __init__(self, owner):
+        self.owner = owner
+
+    def __call__(self, target, *args, **kwargs):
+        patcher = patch(target, *args, **kwargs)
+        mocked = patcher.start()
+        self.owner._patchers.append(patcher)
+        return mocked
+
+    def dict(self, in_dict, values=(), clear=False, **kwargs):
+        patcher = patch.dict(in_dict, values=values, clear=clear, **kwargs)
+        patcher.start()
+        self.owner._patchers.append(patcher)
+        return patcher
+
+
+class _SimpleMocker:
+    def __init__(self):
+        self._patchers = []
+        self.patch = _PatchProxy(self)
+
+    def stopall(self):
+        while self._patchers:
+            self._patchers.pop().stop()
+
+
+@pytest.fixture
+def mocker():
+    helper = _SimpleMocker()
+    try:
+        yield helper
+    finally:
+        helper.stopall()
 
 # --- Database Fixtures ---
 

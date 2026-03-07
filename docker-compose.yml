@@ -8,13 +8,15 @@ services:
     env_file: .env
     environment:
       - WHATSAPP_ADAPTER_URL=http://whatsapp-adapter:3000/send-message
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:-}
+      - WHATSAPP_ADAPTER_API_KEY=${WHATSAPP_ADAPTER_API_KEY:-}
     volumes:
       - ./finbot.db:/app/finbot.db
     depends_on:
       - whatsapp-adapter
     ports:
       - "8000:8000"
-    command: sh -c "python finbot/main.py & python finbot/main_api.py"
+    command: sh -c "python main.py & python main_api.py"
 
   whatsapp-adapter:
     build:
@@ -28,3 +30,6 @@ services:
       - "3000:3000"
     environment:
       - WEBHOOK_URL=http://bot:8000/webhook
+      - BAILEYS_AUTH_FOLDER=/app/auth_info_baileys
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:-}
+      - WHATSAPP_ADAPTER_API_KEY=${WHATSAPP_ADAPTER_API_KEY:-}

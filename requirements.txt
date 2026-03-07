@@ -1,0 +1,7 @@
+python-telegram-bot
+sqlalchemy
+apscheduler
+google-genai
+python-dotenv
+aiohttp
+httpx

@@ -1,94 +1,82 @@
+import asyncio
 import logging
-from .client import WhatsAppClient
-from .state import state_manager
-from ..bot.services import parser
-from ..bot.database import crud
-from ..bot.ui import formatar_balanco
-from datetime import date, datetime
-import logging
+
+from finbot.core.conversation.manager import conversation_manager
+from finbot.database.connection import get_db
+from finbot.database.repositories.user_repository import UserRepository
+from finbot.services.report_service import ReportService
+from finbot.whatsapp.client import WhatsAppClient
+from finbot.whatsapp.schemas import BaileysPayload
 
 logger = logging.getLogger(__name__)
-client = WhatsAppClient()
+_client = WhatsAppClient()
 
-# Estados
-START = "START"
-CONFIRM_EXPENSE = "CONFIRM_EXPENSE"
 
-async def handle_message(message_body):
-    # message_body é um objeto BaileysPayload do schema
-    user_id = message_body.from_  # Número do WhatsApp
-    text = message_body.text.strip()
-    name = message_body.name
-    
-    # Conversão de ID
+def _normalize_phone(phone: str) -> str:
+    return phone.replace("@s.whatsapp.net", "").replace("@c.us", "").strip()
+
+
+def _safe_report(user_id: int, text: str) -> str:
+    lowered = text.lower()
+    if "hoje" in lowered or "dia" in lowered:
+        return ReportService.get_daily_report(user_id)
+    if "semana" in lowered:
+        return ReportService.get_weekly_report(user_id)
+    return ReportService.get_monthly_balance(user_id)
+
+
+async def process_payload(payload: BaileysPayload, request_id: str) -> None:
+    user_phone = _normalize_phone(payload.from_)
+    reply_target = payload.reply_to or user_phone
+    text = payload.text.strip()
+    name = (payload.name or "Usuario").strip()
+
+    if not text:
+        logger.info("request_id=%s ignored empty text", request_id)
+        return
+
     try:
-        # Remove sufixo se houver (já removido no server.js, mas por segurança)
-        clean_id = user_id.replace('@s.whatsapp.net', '')
-        db_user_id = int(clean_id)
-    except ValueError:
-        logger.error(f"User ID inválido: {user_id}")
+        with get_db() as db:
+            user = UserRepository.get_or_create_by_phone(db, user_phone, name)
+            internal_user_id = str(user.telegram_id)
+    except Exception as exc:
+        logger.error("request_id=%s failed user bootstrap: %s", request_id, exc)
+        await _client.send_message(reply_target, "Nao consegui processar seu usuario agora. Tente novamente em instantes.")
         return
 
-    # Garante usuário
-    user = crud.get_user(db_user_id)
-    if not user:
-        crud.create_user(db_user_id, name)
+    await _client.send_typing(reply_target)
 
-    state = state_manager.get_state(user_id)
-    cmd = text.lower()
-
-    # --- Comandos Básicos ---
-    if cmd in ["oi", "ola", "olá", "ajuda", "menu", "/help", "/start"]:
-        msg = (
-            f"Olá {name}! Sou o FinBot 💰.\n\n"
-            "Posso registrar seus gastos e mostrar relatórios.\n"
-            "Exemplos:\n"
-            "👉 *'35 uber'* (registra gasto)\n"
-            "👉 *'/hoje'* (ver gastos de hoje)\n"
-            "👉 *'/mes'* (ver balanço do mês)\n"
-            "👉 *'/semana'* (ver gastos da semana)"
+    fallback_text = "Tive um erro ao processar sua mensagem. Tente novamente em alguns segundos."
+    try:
+        response = await asyncio.wait_for(
+            conversation_manager.handle_message(internal_user_id, text),
+            timeout=25,
         )
-        await client.send_message(user_id, msg)
-        state_manager.set_state(user_id, START)
+    except asyncio.TimeoutError:
+        logger.error("request_id=%s conversation timeout", request_id)
+        await _client.send_message(reply_target, fallback_text)
+        return
+    except Exception as exc:
+        logger.error("request_id=%s conversation failure: %s", request_id, exc)
+        await _client.send_message(reply_target, fallback_text)
         return
 
-    # --- Relatórios ---
-    if cmd == "/hoje":
-        hoje = datetime.now()
-        gastos = crud.get_gastos_periodo(db_user_id, hoje, hoje)
-        total = sum(g.valor for g in gastos)
-        msg = f"📅 *Gastos de Hoje* ({hoje.strftime('%d/%m')}):\n\n"
-        if not gastos:
-            msg += "Nenhum gasto registrado."
-        else:
-            for g in gastos:
-                msg += f"• {g.categoria}: R$ {g.valor:.2f} ({g.descricao})\n"
-            msg += f"\n🔴 *Total: R$ {total:.2f}*"
-        await client.send_message(user_id, msg)
-        return
+    final_text = response.text or "Recebi sua mensagem."
+    if response.action == "GENERATE_REPORT":
+        try:
+            final_text = _safe_report(int(internal_user_id), text)
+        except Exception as exc:
+            logger.error("request_id=%s report failure: %s", request_id, exc)
+            final_text = "Nao consegui gerar o relatorio agora. Tente novamente em instantes."
 
-    if cmd == "/mes":
-        with crud.get_db() as db:
-            total_ganhos = crud.total_ganhos_mes(db, db_user_id)
-            total_gastos = crud.total_gastos_mes(db, db_user_id)
-            total_parcelas = crud.total_mensal_parcelas(db, db_user_id)
-            
-        msg = formatar_balanco(total_ganhos, total_gastos, total_parcelas)
-        await client.send_message(user_id, msg)
-        return
+    if response.suggestions:
+        suggestions_text = "\n".join([f"- {suggestion}" for suggestion in response.suggestions])
+        final_text = f"{final_text}\n\n{suggestions_text}"
 
-    if state == START:
-        # Tenta parsear gasto
-        resultado = await parser.parse_gasto(text)
-        
-        if "erro" not in resultado:
-            valor = resultado.get("valor")
-            categoria = resultado.get("categoria")
-            descricao = resultado.get("descricao", "")
-            
-            crud.add_gasto(db_user_id, valor, categoria, descricao, metodo="WhatsApp")
-            await client.send_message(user_id, f"✅ Gasto registrado:\nR$ {valor:.2f} em {categoria} ({descricao})")
-        else:
-            await client.send_message(user_id, "❓ Não entendi. Tente algo como '35 uber' ou use /menu.")
+    sent = await _client.send_message(reply_target, final_text)
+    if sent is None:
+        logger.error("request_id=%s response not delivered phone_tail=%s", request_id, user_phone[-4:])
 
-    # Implementar mais fluxos conforme necessário
+
+async def shutdown() -> None:
+    await _client.close()

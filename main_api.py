@@ -1,5 +1,5 @@
-import logging
 import uvicorn
+import logging
 from finbot.whatsapp.webhook import app
 from finbot.database.connection import init_db
 
