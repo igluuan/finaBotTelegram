@@ -152,3 +152,12 @@ Implementado:
 - Endpoint `GET /health/ollama` no FastAPI para validar a disponibilidade e expor um status 200/503.
 Validação:
 - `curl http://localhost:8000/health/ollama` responde `{"ok":true,...}` e confirma que o modelo phi3 está rodando sobre a versão 0.17.7.
+
+### 2026-03-07 - Linguagem natural expandida
+Implementado:
+- Lista oficial de frases naturais (`finbot.services.ai_service.NATURAL_LANGUAGE_EXAMPLES`) agora é usada para sugestionar opções ao usuário.
+- `answer_natural` retorna sugestões diretas com essas frases quando o LLM não responde e as integra ao fallback amigável.
+- `conversation_manager` expõe as três primeiras frases como sugestões imediatas caso o bot não entenda a mensagem.
+- Documentação em `docs/natural-language-opcoes.md` descreve as frases e como usá-las.
+Validação:
+- Revisão manual das respostas de fallback e verificação de que o endpoint `/health/ollama` retorna `ok` e a lista aparece nas mensagens de erro.

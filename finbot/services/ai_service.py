@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 
 _MODEL_NAME = "gemini-2.5-flash"
 
+NATURAL_LANGUAGE_EXAMPLES = [
+    "gastei 40 no uber",
+    "paguei aluguel hoje",
+    "recebi salário",
+    "quanto gastei essa semana",
+    "parcelamento de 3x no cartão",
+    "registra uma despesa em restaurantes",
+    "mostra meu saldo do mês",
+    "anota que comprei 120 em supermercado",
+]
+
+
+def format_natural_language_examples(limit: int = 4) -> str:
+    return ", ".join(NATURAL_LANGUAGE_EXAMPLES[:limit])
+
 try:
     from google import genai
     from google.genai.types import HttpOptions
@@ -158,13 +173,26 @@ Mensagem do usuario: {message}
         return response
 
     lowered = (message or "").strip().lower()
-    if any(token in lowered for token in {"oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "ajuda", "menu"}):
+    examples = format_natural_language_examples(limit=4)
+    if any(token in lowered for token in {
+        "oi",
+        "ola",
+        "olá",
+        "bom dia",
+        "boa tarde",
+        "boa noite",
+        "ajuda",
+        "menu",
+    }):
         return (
             "Posso registrar gastos, receitas e consultas. "
-            "Exemplos: 'gastei 40 no uber', 'recebi 2500 de salário', 'quanto gastei essa semana?'."
+            f"Exemplos: {examples}."
         )
 
-    return "Posso te ajudar a registrar gastos, receitas e consultar seu mês."
+    return (
+        "Posso te ajudar a registrar gastos, receitas e consultar seu mês. "
+        f"Sugestões rápidas: {examples}."
+    )
 
 
 PROMPT_INTERPRET = """

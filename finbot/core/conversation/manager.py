@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from finbot.core.conversation.state import conversation_state_manager, ConversationState
-from finbot.services.ai_service import interpret_message, answer_natural
+from finbot.services.ai_service import NATURAL_LANGUAGE_EXAMPLES, interpret_message, answer_natural
 from finbot.services import parser_service, finance_service
 from finbot.database.connection import get_db
 from finbot.database.repositories.expense_repository import ExpenseRepository
@@ -234,7 +234,7 @@ class ConversationManager:
         # Fallback / Unknown
         return ConversationResponse(
             text="Não entendi bem. Tente algo como 'Gastei 50 no almoço' ou 'Uber 20'.",
-            suggestions=["Adicionar despesa", "Ver saldo"]
+            suggestions=NATURAL_LANGUAGE_EXAMPLES[:3]
         )
 
     def _generate_confirmation_request(self, data: dict) -> ConversationResponse:
