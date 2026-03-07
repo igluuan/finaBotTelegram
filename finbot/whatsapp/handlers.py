@@ -4,6 +4,7 @@ import logging
 from finbot.core.conversation.manager import conversation_manager
 from finbot.database.connection import get_db
 from finbot.database.repositories.user_repository import UserRepository
+from finbot.services.audio_service import build_audio_unavailable_message, store_audio_payload
 from finbot.services.report_service import ReportService
 from finbot.whatsapp.client import WhatsAppClient
 from finbot.whatsapp.schemas import BaileysPayload
@@ -16,11 +17,36 @@ def _normalize_phone(phone: str) -> str:
     return phone.replace("@s.whatsapp.net", "").replace("@c.us", "").strip()
 
 
-def _safe_report(user_id: int, text: str) -> str:
+def _safe_report(user_id: int, text: str, structured_data: dict | None = None) -> str:
+    structured_data = structured_data or {}
+    category = structured_data.get("category")
+    period = structured_data.get("period")
+    metric = structured_data.get("metric")
     lowered = text.lower()
-    if "hoje" in lowered or "dia" in lowered:
+
+    if metric == "income":
+        if not period:
+            if "hoje" in lowered or "dia" in lowered:
+                period = "today"
+            elif "semana" in lowered:
+                period = "week"
+            else:
+                period = "month"
+        return ReportService.get_income_period_report(user_id, period)
+
+    if category:
+        if not period:
+            if "hoje" in lowered or "dia" in lowered:
+                period = "today"
+            elif "semana" in lowered:
+                period = "week"
+            else:
+                period = "month"
+        return ReportService.get_category_period_report(user_id, category, period)
+
+    if period == "today" or "hoje" in lowered or "dia" in lowered:
         return ReportService.get_daily_report(user_id)
-    if "semana" in lowered:
+    if period == "week" or "semana" in lowered:
         return ReportService.get_weekly_report(user_id)
     return ReportService.get_monthly_balance(user_id)
 
@@ -31,8 +57,14 @@ async def process_payload(payload: BaileysPayload, request_id: str) -> None:
     text = payload.text.strip()
     name = (payload.name or "Usuario").strip()
 
+    if payload.media_type == "audio":
+        logger.info("request_id=%s audio message received phone_tail=%s", request_id, user_phone[-4:])
+        saved_path = store_audio_payload(payload.media_base64 or "", payload.mime_type, user_phone)
+        await _client.send_message(reply_target, build_audio_unavailable_message(saved_path))
+        return
+
     if not text:
-        logger.info("request_id=%s ignored empty text", request_id)
+        logger.info("request_id=%s ignored empty text/media_type=%s", request_id, payload.media_type)
         return
 
     try:
@@ -64,7 +96,7 @@ async def process_payload(payload: BaileysPayload, request_id: str) -> None:
     final_text = response.text or "Recebi sua mensagem."
     if response.action == "GENERATE_REPORT":
         try:
-            final_text = _safe_report(int(internal_user_id), text)
+            final_text = _safe_report(int(internal_user_id), text, response.structured_data)
         except Exception as exc:
             logger.error("request_id=%s report failure: %s", request_id, exc)
             final_text = "Nao consegui gerar o relatorio agora. Tente novamente em instantes."

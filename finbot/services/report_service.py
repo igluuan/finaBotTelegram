@@ -7,6 +7,18 @@ from finbot.database.repositories.installment_repository import InstallmentRepos
 
 class ReportService:
     @staticmethod
+    def _period_bounds(period: str | None) -> tuple[date, date, str]:
+        today = date.today()
+        normalized = (period or "month").lower()
+        if normalized == "today":
+            return today, today, f"hoje ({today.strftime('%d/%m')})"
+        if normalized == "week":
+            start_week = today - timedelta(days=today.weekday())
+            return start_week, today, f"esta semana ({start_week.strftime('%d/%m')} - {today.strftime('%d/%m')})"
+        start_month = today.replace(day=1)
+        return start_month, today, f"este mês ({today.strftime('%m/%Y')})"
+
+    @staticmethod
     def get_daily_report(user_id: int) -> str:
         today = date.today()
         with get_db() as db:
@@ -92,4 +104,46 @@ class ReportService:
                 msg += f"• *{item['category'].capitalize()}*: R$ {item['total']:.2f} ({percentage:.1f}%)\n"
                 
             msg += f"\n🔴 *Total Geral: R$ {total_month:.2f}*"
+        return msg
+
+    @staticmethod
+    def get_category_period_report(user_id: int, category: str, period: str | None = None) -> str:
+        start_date, end_date, label = ReportService._period_bounds(period)
+        with get_db() as db:
+            expenses = ExpenseRepository.get_by_period(db, user_id, start_date, end_date)
+
+        normalized_category = (category or "").strip().lower()
+        category_expenses = [expense for expense in expenses if (expense.category or "").strip().lower() == normalized_category]
+        category_title = normalized_category.capitalize() if normalized_category else "Categoria"
+
+        msg = f"📂 *{category_title} em {label}*\n\n"
+        if not category_expenses:
+            return msg + "Nenhum gasto registrado nessa categoria nesse período."
+
+        total = sum(expense.amount for expense in category_expenses)
+        for expense in category_expenses:
+            name = expense.description if expense.description else category_title
+            msg += f"• {name}: R$ {expense.amount:.2f}\n"
+        msg += f"\n🔴 *Total: R$ {total:.2f}*"
+        return msg
+
+    @staticmethod
+    def get_income_period_report(user_id: int, period: str | None = None) -> str:
+        start_date, end_date, label = ReportService._period_bounds(period)
+        with get_db() as db:
+            earnings = [
+                earning
+                for earning in EarningRepository.get_current_month_earnings(db, user_id)
+                if start_date <= earning.date <= end_date
+            ]
+
+        msg = f"💚 *Receitas em {label}*\n\n"
+        if not earnings:
+            return msg + "Nenhuma receita registrada nesse período."
+
+        total = sum(earning.amount for earning in earnings)
+        for earning in earnings:
+            name = earning.description if earning.description else (earning.category or "Receita").capitalize()
+            msg += f"• {name}: R$ {earning.amount:.2f}\n"
+        msg += f"\n🟢 *Total: R$ {total:.2f}*"
         return msg

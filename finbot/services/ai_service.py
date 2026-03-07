@@ -153,7 +153,18 @@ Maximo 3 frases. Use emojis com moderacao.
 
 Mensagem do usuario: {message}
 """
-    return await generate_content(prompt)
+    response = await generate_content(prompt)
+    if response:
+        return response
+
+    lowered = (message or "").strip().lower()
+    if any(token in lowered for token in {"oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "ajuda", "menu"}):
+        return (
+            "Posso registrar gastos, receitas e consultas. "
+            "Exemplos: 'gastei 40 no uber', 'recebi 2500 de salário', 'quanto gastei essa semana?'."
+        )
+
+    return "Posso te ajudar a registrar gastos, receitas e consultar seu mês."
 
 
 PROMPT_INTERPRET = """
@@ -214,45 +225,96 @@ async def interpret_message(message: str, history: list = None) -> dict:
 def _fallback_interpret_message(message: str) -> dict:
     text = (message or "").strip()
     lowered = text.lower()
+    metric = "expense"
+
+    period = None
+    if "hoje" in lowered:
+        period = "today"
+    elif "semana" in lowered:
+        period = "week"
+    elif "mes" in lowered or "mês" in lowered:
+        period = "month"
+
+    category = None
+    category_keywords = {
+        "transporte": ["transporte", "uber", "taxi", "99", "metro", "onibus", "ônibus"],
+        "alimentacao": ["alimentacao", "alimentação", "almoco", "almoço", "jantar", "lanche", "ifood", "restaurante"],
+        "mercado": ["mercado", "supermercado"],
+        "moradia": ["moradia", "aluguel", "condominio", "condomínio", "luz", "agua", "água", "internet", "casa"],
+        "lazer": ["lazer", "cinema", "netflix", "spotify", "bar", "show"],
+        "saude": ["saude", "saúde", "farmacia", "farmácia", "remedio", "remédio", "medico", "médico"],
+    }
+    for category_name, keywords in category_keywords.items():
+        if any(keyword in lowered for keyword in keywords):
+            category = category_name
+            break
+
+    income_query_keywords = ["recebi", "ganhei", "ganhos", "receitas", "receita", "salario", "salário"]
+    if any(keyword in lowered for keyword in income_query_keywords):
+        metric = "income"
 
     if not text:
         return {"type": "unknown"}
 
-    greetings = {"oi", "ola", "bom dia", "boa tarde", "boa noite", "/start", "/menu", "menu", "ajuda", "/help"}
+    greetings = {"oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "/start", "/menu", "menu", "ajuda", "/help"}
     if lowered in greetings:
         return {"type": "question", "question_text": text}
 
-    if any(token in lowered for token in ["relatorio", "resumo", "/mes", "/semana", "/hoje"]):
-        return {"type": "report"}
+    if any(token in lowered for token in ["relatorio", "relatório", "resumo", "/mes", "/semana", "/hoje"]):
+        return {"type": "report", "period": period, "category": category, "metric": metric}
 
-    if any(token in lowered for token in ["saldo", "balanco", "quanto gastei"]):
-        return {"type": "balance"}
+    if any(token in lowered for token in ["saldo", "balanco", "balanço", "quanto gastei"]):
+        return {"type": "balance", "period": period, "category": category, "metric": metric}
 
-    if lowered in {"sim", "s", "ok", "confirmar", "confirma", "yes"}:
+    if "quanto recebi" in lowered or "quanto ganhei" in lowered:
+        return {"type": "balance", "period": period, "category": category, "metric": "income"}
+
+    if lowered in {"sim", "s", "ok", "confirmar", "confirma", "yes", "pode confirmar", "pode"}:
         return {"type": "confirmation"}
 
-    if lowered in {"nao", "n", "cancelar", "cancela", "parar"}:
+    if lowered in {"nao", "não", "n", "cancelar", "cancela", "parar"}:
         return {"type": "cancellation"}
+
+    income_keywords = ["recebi", "salario", "salário", "ganhei", "entrou", "caiu"]
+    if any(token in lowered for token in income_keywords):
+        amount_match = re.search(r"(\d+[\.,]\d+|\d+)", lowered)
+        value = float(amount_match.group(1).replace(",", ".")) if amount_match else None
+        return {
+            "type": "income",
+            "value": value,
+            "category": "salario" if "salario" in lowered or "salário" in lowered else "outros",
+            "description": text,
+            "date": "hoje",
+        }
+
+    installment_match = re.search(r"(\d+)\s*x\b", lowered)
+    if "parcela" in lowered or "parcel" in lowered or installment_match:
+        amount_match = re.search(r"(\d+[\.,]\d+|\d+)", lowered)
+        value = float(amount_match.group(1).replace(",", ".")) if amount_match else None
+        return {
+            "type": "installment",
+            "value": value,
+            "description": text,
+            "installment_count": int(installment_match.group(1)) if installment_match else None,
+            "date": "hoje",
+        }
 
     amount_match = re.search(r"(\d+[\.,]\d+|\d+)", lowered)
     if amount_match:
         value = float(amount_match.group(1).replace(",", "."))
-        category = "Outros"
-        category_map = {
-            "Transporte": ["uber", "taxi", "99", "metro", "onibus"],
-            "Alimentacao": ["almoco", "jantar", "lanche", "ifood", "restaurante", "mercado"],
-            "Casa": ["aluguel", "condominio", "luz", "agua", "internet"],
-            "Lazer": ["cinema", "netflix", "spotify", "bar", "show"],
-            "Saude": ["farmacia", "remedio", "medico"],
-        }
-        for cat_name, keywords in category_map.items():
-            if any(keyword in lowered for keyword in keywords):
-                category = cat_name
-                break
-
         return {
             "type": "expense",
             "value": value,
+            "category": category or "outros",
+            "description": text,
+            "date": "hoje",
+        }
+
+    expense_keywords = ["gastei", "paguei", "comprei", "uber", "mercado", "aluguel", "ifood"]
+    if any(token in lowered for token in expense_keywords):
+        return {
+            "type": "expense",
+            "value": None,
             "category": category,
             "description": text,
             "date": "hoje",

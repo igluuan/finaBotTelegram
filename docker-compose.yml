@@ -22,7 +22,7 @@ services:
       - whatsapp-adapter
     ports:
       - "8000:8000"
-    command: sh -c "python main.py & python main_api.py"
+    command: ["python", "main_api.py"]
 
   whatsapp-adapter:
     build:

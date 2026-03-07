@@ -113,3 +113,31 @@ def test_webhook_deduplicates_message_id(monkeypatch):
         time.sleep(0.1)
 
     assert len(processed) == 1
+
+
+def test_webhook_accepts_audio_payload(monkeypatch):
+    processed = []
+
+    async def fake_process(payload, request_id):
+        processed.append((request_id, payload.media_type, payload.mime_type))
+
+    webhook_mod._PROCESSED_MESSAGES.clear()
+    monkeypatch.setattr(webhook_mod, "process_payload", fake_process)
+
+    with TestClient(webhook_mod.app) as client:
+        response = client.post(
+            "/webhook",
+            json={
+                "from": "5511999999999",
+                "text": "",
+                "media_type": "audio",
+                "mime_type": "audio/ogg",
+                "media_base64": "ZmFrZQ==",
+                "name": "Teste",
+                "message_id": "audio-1",
+            },
+        )
+        assert response.status_code == 200
+        time.sleep(0.1)
+
+    assert processed == [("audio-1", "audio", "audio/ogg")]

@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const {
     default: makeWASocket,
     DisconnectReason,
+    downloadContentFromMessage,
     fetchLatestBaileysVersion,
     useMultiFileAuthState,
 } = require('@whiskeysockets/baileys');
@@ -94,6 +95,58 @@ function parseIncomingText(message) {
     return null;
 }
 
+async function streamToBase64(stream) {
+    const chunks = [];
+    for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString('base64');
+}
+
+async function extractIncomingPayload(message) {
+    const normalized = unwrapMessageContent(message);
+    if (!normalized) return null;
+
+    const text = parseIncomingText(normalized);
+    if (text) {
+        return {
+            text,
+            media_type: 'text',
+        };
+    }
+
+    if (normalized.audioMessage) {
+        try {
+            const stream = await downloadContentFromMessage(normalized.audioMessage, 'audio');
+            const mediaBase64 = await streamToBase64(stream);
+            return {
+                text: '',
+                media_type: 'audio',
+                mime_type: normalized.audioMessage.mimetype || 'audio/ogg',
+                media_base64: mediaBase64,
+                file_length: normalized.audioMessage.fileLength
+                    ? Number(normalized.audioMessage.fileLength)
+                    : null,
+                voice_note: Boolean(normalized.audioMessage.ptt),
+            };
+        } catch (error) {
+            console.error('Failed to extract audio payload:', error.message);
+            return {
+                text: '',
+                media_type: 'audio',
+                mime_type: normalized.audioMessage.mimetype || 'audio/ogg',
+                media_base64: null,
+                file_length: normalized.audioMessage.fileLength
+                    ? Number(normalized.audioMessage.fileLength)
+                    : null,
+                voice_note: Boolean(normalized.audioMessage.ptt),
+            };
+        }
+    }
+
+    return null;
+}
+
 async function startBaileys() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
     const { version } = await fetchLatestBaileysVersion();
@@ -159,9 +212,9 @@ async function startBaileys() {
             return;
         }
 
-        const text = parseIncomingText(message.message);
-        if (!text) {
-            console.log(`Ignoring message without supported text payload from ${remoteJid}`);
+        const incomingPayload = await extractIncomingPayload(message.message);
+        if (!incomingPayload) {
+            console.log(`Ignoring message without supported payload from ${remoteJid}`);
             return;
         }
 
@@ -174,7 +227,12 @@ async function startBaileys() {
         const payload = {
             from: senderId,
             reply_to: remoteJid,
-            text,
+            text: incomingPayload.text,
+            media_type: incomingPayload.media_type || 'text',
+            mime_type: incomingPayload.mime_type || null,
+            media_base64: incomingPayload.media_base64 || null,
+            file_length: incomingPayload.file_length || null,
+            voice_note: incomingPayload.voice_note || false,
             name: message.pushName || 'Usuario',
             message_id: message.key.id || null,
             timestamp: Number(message.messageTimestamp) || Math.floor(Date.now() / 1000),
@@ -190,7 +248,7 @@ async function startBaileys() {
                     .digest('hex');
             }
 
-            console.log(`Incoming message from ${payload.from}: ${payload.text}`);
+            console.log(`Incoming ${payload.media_type} message from ${payload.from}: ${payload.text || '[media]'}`);
             await axios.post(WEBHOOK_URL, rawBody, {
                 headers,
                 timeout: 5000,
