@@ -21,3 +21,9 @@ yarn-error.log
 
 # Baileys Auth (Credenciais)
 auth_info_baileys/
+finbot-baileys/baileys_auth/
+
+# Logs
+logs/
+.logs/
+*.log
