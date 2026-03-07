@@ -127,3 +127,13 @@ Validation performed:
 - Confirmed `GET /health` still returns `{"ok": true, "queue_size": 0, "workers": 2}`
 - Ran `python -m pytest -q tests/test_conversation_manager.py tests/whatsapp/test_whatsapp.py tests/whatsapp/test_reporting.py tests/whatsapp/test_audio.py` inside the backend container: `14 passed`
 - Added file persistence for uploaded audio and wound the pipeline toward transcription.
+
+### 2026-03-07 - Fase 1 estruturada (documentação e observabilidade)
+Implementado:
+- Criado `.venv` local e instalado `requirements.txt` para isolar dependências enquanto o desenvolvimento acontece fora do sistema base.
+- Introduzido `finbot.core.logging` para emitir logs em JSON e facilitar rastreabilidade sem sacrificar a simplicidade do projeto pessoal.
+- Atualizado `main_api.py` para usar logging estruturado antes de iniciar o FastAPI/Uvicorn.
+- Documentada a fase 1 em `docs/fase1-base-estrutural.md`, alinhando arquitetura, fluxo e camadas ao foco atual no WhatsApp.
+- Confirmado que os containers Docker (`finbot_python`, `finbot_whatsapp`) continuam rodando na mesma stack.
+Validação:
+- Logs manuais e inspeção de `docker compose ps` para garantir as duas peças principais estão ativas.
