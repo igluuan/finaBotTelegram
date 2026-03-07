@@ -7,9 +7,15 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - WHATSAPP_ADAPTER_URL=http://whatsapp-adapter:3000/send-message
-      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:-}
-      - WHATSAPP_ADAPTER_API_KEY=${WHATSAPP_ADAPTER_API_KEY:-}
+      DATABASE_URL: sqlite:////app/finbot.db
+      WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:3000/send-message
+      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET:-}
+      WHATSAPP_ADAPTER_API_KEY: ${WHATSAPP_ADAPTER_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-gemini}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi3}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./finbot.db:/app/finbot.db
     depends_on:
@@ -29,7 +35,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - WEBHOOK_URL=http://bot:8000/webhook
-      - BAILEYS_AUTH_FOLDER=/app/auth_info_baileys
-      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:-}
-      - WHATSAPP_ADAPTER_API_KEY=${WHATSAPP_ADAPTER_API_KEY:-}
+      WEBHOOK_URL: http://bot:8000/webhook
+      BAILEYS_AUTH_FOLDER: /app/auth_info_baileys
+      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET:-}
+      WHATSAPP_ADAPTER_API_KEY: ${WHATSAPP_ADAPTER_API_KEY:-}
