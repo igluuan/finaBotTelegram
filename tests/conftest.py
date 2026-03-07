@@ -1,10 +1,9 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from finbot.bot.database.models import Base
-from finbot.bot.database.crud import get_db
-import finbot.bot.database.crud as crud_module
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from finbot.database.models import Base
 
 
 class _PatchProxy:
@@ -75,7 +74,7 @@ def override_get_db(db_session):
 
 @pytest.fixture
 def mock_db_context(mocker, db_session):
-    mock = mocker.patch("finbot.bot.database.crud.get_db")
+    mock = MagicMock()
     mock.return_value.__enter__.return_value = db_session
     mock.return_value.__exit__.return_value = None
     return mock
@@ -84,6 +83,5 @@ def mock_db_context(mocker, db_session):
 
 @pytest.fixture
 def mock_ai_service(mocker):
-    # Mock the generate_content function in the ai_service module
-    mock = mocker.patch("finbot.bot.services.ai_service.generate_content", new_callable=AsyncMock)
+    mock = AsyncMock()
     return mock

@@ -1,13 +1,24 @@
-# flyctl launch added from .gitignore
-**\finbot\.env
+# Secrets
+.env
+finbot/.env
 
-# Arquivos temporários / cache
-**\__pycache__
-**\*.py[cod]
+# Python cache / local env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 
-# Ambiente virtual
-**\.venv
-**\venv
+# Local runtime data
+finbot.db
+auth_info_baileys/
 
-# Banco de dados local
-**\finbot.db
+# Git metadata
+.git/
+
+# Legacy Telegram code kept in the repo but excluded from the WhatsApp runtime image
+finbot/interfaces/telegram/
+finbot/bot/
+finbot/main.py
+tests/bot/
+tests/test_expense_handlers.py
+tests/test_expense_integration.py

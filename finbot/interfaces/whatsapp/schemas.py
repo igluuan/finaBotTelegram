@@ -1,6 +1,3 @@
-from pydantic import BaseModel, Field
+from finbot.whatsapp.schemas import BaileysPayload
 
-class WhatsAppPayload(BaseModel):
-    from_: str = Field(..., alias="from")
-    text: str
-    name: str = "Usuário"
+__all__ = ["BaileysPayload"]

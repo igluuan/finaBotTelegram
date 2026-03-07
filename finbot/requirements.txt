@@ -1,5 +1,6 @@
-python-telegram-bot
 sqlalchemy
 apscheduler
 google-genai
 python-dotenv
+fastapi
+uvicorn

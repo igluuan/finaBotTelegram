@@ -1,11 +1,12 @@
 from typing import Dict, Any, List, Optional
 import logging
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import date
 
 from finbot.core.conversation.state import conversation_state_manager, ConversationState
-from finbot.services.ai_service import interpret_message, answer_natural
+from finbot.services.ai_service import NATURAL_LANGUAGE_EXAMPLES, interpret_message, answer_natural
 from finbot.services import parser_service, finance_service
 from finbot.database.connection import get_db
 from finbot.database.repositories.expense_repository import ExpenseRepository
@@ -41,6 +42,135 @@ class ConversationManager:
         
         return response
 
+    def _is_confirmation_text(self, message: str) -> bool:
+        lowered = (message or "").strip().lower()
+        return lowered in {"sim", "s", "ok", "confirmar", "confirma", "yes", "✅", "pode confirmar", "pode"}
+
+    def _is_edit_text(self, message: str) -> bool:
+        lowered = (message or "").strip().lower()
+        return any(token in lowered for token in ["editar", "edita", "corrigir", "corrige", "ajustar", "ajusta", "mudar", "altera"])
+
+    def _is_negative_confirmation_text(self, message: str) -> bool:
+        lowered = (message or "").strip().lower()
+        return lowered in {"nao", "não", "n", "não", "cancelar", "desistir"}
+
+    def _extract_number(self, text: str) -> float | None:
+        match = re.search(r"(\d+[\.,]\d+|\d+)", text or "")
+        if not match:
+            return None
+        return float(match.group(1).replace(",", "."))
+
+    def _extract_installment_count(self, text: str) -> int | None:
+        match = re.search(r"(\d+)\s*x\b", (text or "").lower())
+        if match:
+            return int(match.group(1))
+
+        match = re.search(r"(\d+)", text or "")
+        if match:
+            return int(match.group(1))
+        return None
+
+    def _normalize_category(self, category: str | None) -> str | None:
+        if not category:
+            return None
+
+        cleaned = category.strip()
+        mapped = finance_service.get_category_key(cleaned)
+        if mapped:
+            return mapped
+
+        aliases = {
+            "alimentacao": "alimentacao",
+            "alimentação": "alimentacao",
+            "comida": "alimentacao",
+            "transporte": "transporte",
+            "uber": "transporte",
+            "mercado": "mercado",
+            "casa": "moradia",
+            "moradia": "moradia",
+            "saude": "saude",
+            "saúde": "saude",
+            "lazer": "lazer",
+            "educacao": "educacao",
+            "educação": "educacao",
+            "assinaturas": "assinaturas",
+            "outros": "outros",
+        }
+        return aliases.get(cleaned.lower(), cleaned.lower())
+
+    def _required_fields(self, data: dict) -> list[str]:
+        transaction_type = data.get("type")
+        if transaction_type == "expense":
+            required = ["value", "category"]
+        elif transaction_type == "income":
+            required = ["value"]
+        elif transaction_type == "installment":
+            required = ["value", "installment_count"]
+        else:
+            return []
+
+        return [field for field in required if not data.get(field)]
+
+    def _next_missing_response(self, state: ConversationState) -> ConversationResponse | None:
+        missing_fields = self._required_fields(state.transaction_draft)
+        if not missing_fields:
+            return None
+
+        first_missing = missing_fields[0]
+        if first_missing == "value":
+            conversation_state_manager.set_state(state.user_id, "WAITING_AMOUNT")
+            label = "desse gasto" if state.transaction_draft.get("type") == "expense" else "dessa receita"
+            if state.transaction_draft.get("type") == "installment":
+                label = "desse parcelamento"
+            return ConversationResponse(text=f"Faltou só o valor {label}. Quanto foi?")
+
+        if first_missing == "category":
+            conversation_state_manager.set_state(state.user_id, "WAITING_CATEGORY")
+            return ConversationResponse(
+                text="Qual categoria dessa despesa?",
+                suggestions=["Alimentação", "Transporte", "Mercado", "Moradia", "Outros"],
+            )
+
+        if first_missing == "installment_count":
+            conversation_state_manager.set_state(state.user_id, "WAITING_INSTALLMENT_COUNT")
+            return ConversationResponse(text="Em quantas parcelas foi?")
+
+        return None
+
+    def _merge_user_correction(self, state: ConversationState, intent_data: dict, original_message: str) -> None:
+        patch_data: dict[str, Any] = {}
+
+        if intent_data.get("type") in {"expense", "income", "installment"}:
+            patch_data["type"] = intent_data["type"]
+
+        if intent_data.get("value") is not None:
+            patch_data["value"] = intent_data["value"]
+        elif state.state == "WAITING_AMOUNT":
+            extracted = self._extract_number(original_message)
+            if extracted is not None:
+                patch_data["value"] = extracted
+
+        if intent_data.get("category"):
+            patch_data["category"] = self._normalize_category(intent_data["category"])
+        elif state.state == "WAITING_CATEGORY":
+            patch_data["category"] = self._normalize_category(original_message)
+
+        if intent_data.get("description"):
+            patch_data["description"] = intent_data["description"]
+
+        if intent_data.get("date"):
+            patch_data["date"] = intent_data["date"]
+
+        if intent_data.get("installment_count"):
+            patch_data["installment_count"] = intent_data["installment_count"]
+        elif state.state == "WAITING_INSTALLMENT_COUNT":
+            installment_count = self._extract_installment_count(original_message)
+            if installment_count:
+                patch_data["installment_count"] = installment_count
+
+        if patch_data:
+            state.update_draft(patch_data)
+
     async def _process_intent(self, user_id: str, state: ConversationState, intent_data: dict, original_message: str) -> ConversationResponse:
         intent_type = intent_data.get("type")
         
@@ -55,41 +185,46 @@ class ConversationManager:
 
         # Handle confirmations (if waiting for one)
         if state.state == "WAITING_CONFIRMATION":
-            if intent_type == 'confirmation' or (intent_type == 'unknown' and original_message.lower() in ['sim', 's', 'ok', 'confirmar', 'yes', '✅']):
+            if intent_type == 'confirmation' or (intent_type == 'unknown' and self._is_confirmation_text(original_message)):
                 return await self._execute_transaction(user_id, state)
-            elif intent_type in ['expense', 'income', 'installment']:
-                # User corrected data instead of just confirming
-                state.update_draft(intent_data)
+            if intent_type == 'cancellation' or self._is_negative_confirmation_text(original_message):
+                conversation_state_manager.set_state(user_id, "START")
+                state.clear_draft()
+                return ConversationResponse(
+                    text="Cancelado. Precisa de outra coisa?", suggestions=["Adicionar despesa", "Ver saldo"], action="CANCEL_TRANSACTION"
+                )
+            if self._is_edit_text(original_message) and not any(intent_data.get(field) for field in ["value", "category", "installment_count"]):
+                return ConversationResponse(
+                    text="Me diga só o que quer mudar. Exemplo: 'foi 52', 'categoria mercado' ou '3x'."
+                )
+
+            self._merge_user_correction(state, intent_data, original_message)
+            next_step = self._next_missing_response(state)
+            if next_step:
+                return next_step
+            if state.transaction_draft:
+                conversation_state_manager.set_state(user_id, "WAITING_CONFIRMATION")
                 return self._generate_confirmation_request(state.transaction_draft)
-            else:
-                 # Assume correction or new command
-                if intent_data.get("value") or intent_data.get("category"):
-                     state.update_draft(intent_data)
-                     return self._generate_confirmation_request(state.transaction_draft)
 
         # Start new transaction flow
         if intent_type in ['expense', 'income', 'installment']:
             conversation_state_manager.set_state(user_id, "WAITING_CONFIRMATION")
             state.clear_draft()
-            state.update_draft(intent_data)
-            
-            # Check for missing required fields
-            if not intent_data.get("category") and intent_type == 'expense':
-                 conversation_state_manager.set_state(user_id, "WAITING_CATEGORY")
-                 return ConversationResponse(
-                     text="Qual a categoria dessa despesa?",
-                     suggestions=["Alimentação", "Transporte", "Lazer", "Casa", "Outros"]
-                 )
-            
+            draft = dict(intent_data)
+            if draft.get("category"):
+                draft["category"] = self._normalize_category(draft["category"])
+            state.update_draft(draft)
+
+            next_step = self._next_missing_response(state)
+            if next_step:
+                return next_step
             return self._generate_confirmation_request(state.transaction_draft)
             
-        # Handle category answer
-        if state.state == "WAITING_CATEGORY":
-            category = intent_data.get("category") or original_message
-            # Map common category names if needed
-            mapped_category = finance_service.get_category_key(category) or category
-            
-            state.update_draft({"category": mapped_category})
+        if state.state in {"WAITING_AMOUNT", "WAITING_CATEGORY", "WAITING_INSTALLMENT_COUNT"}:
+            self._merge_user_correction(state, intent_data, original_message)
+            next_step = self._next_missing_response(state)
+            if next_step:
+                return next_step
             conversation_state_manager.set_state(user_id, "WAITING_CONFIRMATION")
             return self._generate_confirmation_request(state.transaction_draft)
 
@@ -104,12 +239,12 @@ class ConversationManager:
         # Handle general questions
         if intent_type == 'question':
             answer = await answer_natural(original_message, {})
-            return ConversationResponse(text=answer)
+            return ConversationResponse(text=answer, suggestions=["Gastei 40 no uber", "Recebi 2500", "Quanto gastei essa semana?"])
 
         # Fallback / Unknown
         return ConversationResponse(
             text="Não entendi bem. Tente algo como 'Gastei 50 no almoço' ou 'Uber 20'.",
-            suggestions=["Adicionar despesa", "Ver saldo"]
+            suggestions=NATURAL_LANGUAGE_EXAMPLES[:3]
         )
 
     def _generate_confirmation_request(self, data: dict) -> ConversationResponse:
@@ -126,16 +261,16 @@ class ConversationManager:
         date_str = data.get("date", "Hoje")
         
         msg = (
-            f"Entendi assim:\n\n"
-            f"📝 **Tipo:** {t_type}\n"
-            f"💰 **Valor:** R$ {val}\n"
-            f"🏷️ **Categoria:** {cat}\n"
-            f"📅 **Data:** {date_str}\n"
+            f"Confere isso?\n"
+            f"Tipo: {t_type}\n"
+            f"Valor: R$ {val}\n"
+            f"Categoria: {cat}\n"
+            f"Data: {date_str}\n"
         )
         if desc:
-            msg += f"ℹ️ **Descrição:** {desc}\n"
+            msg += f"Descrição: {desc}\n"
             
-        msg += "\nConfirma? ✅"
+        msg += "\nResponda 'sim' para confirmar ou 'não' para cancelar."
         
         return ConversationResponse(
             text=msg,
@@ -157,11 +292,15 @@ class ConversationManager:
             conversation_state_manager.set_state(user_id, "START")
             state.clear_draft()
             
+            saved_type = data.get("type", "transação")
+            saved_value = float(data.get("value", 0))
+            saved_description = data.get("description") or data.get("category", "outros")
+
             return ConversationResponse(
-                text="Salvo com sucesso! ✅",
+                text=f"Salvei {saved_type} de R$ {saved_value:.2f} em {saved_description}.",
                 action="SAVE_TRANSACTION",
                 structured_data=data,
-                suggestions=["Adicionar outro", "Ver saldo", "Relatório"]
+                suggestions=["Adicionar outro", "Quanto gastei essa semana?", "Resumo do mês"]
             )
         except Exception as e:
             logger.error(f"Error saving transaction: {e}")

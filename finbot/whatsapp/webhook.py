@@ -5,18 +5,19 @@ import hmac
 import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from finbot.core.config import WHATSAPP_ADAPTER_URL, WHATSAPP_WEBHOOK_SECRET
 from finbot.whatsapp.handlers import process_payload, shutdown as shutdown_handlers
+from finbot.services.ollama_service import ping_ollama
 from finbot.whatsapp.schemas import BaileysPayload
 
 logger = logging.getLogger(__name__)
-
-app = FastAPI(title="FinBot WhatsApp API")
 
 _PROCESSED_MESSAGES: dict[str, float] = {}
 _TTL_SECONDS = 60 * 10
@@ -59,16 +60,14 @@ async def _worker_loop(worker_id: int):
             _message_queue.task_done()
 
 
-@app.on_event("startup")
-async def startup_event():
+async def _startup() -> None:
     global _message_queue
     _message_queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     for index in range(_WORKER_COUNT):
         _workers.append(asyncio.create_task(_worker_loop(index + 1), name=f"whatsapp-worker-{index+1}"))
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
+async def _shutdown() -> None:
     global _message_queue
     for worker in _workers:
         worker.cancel()
@@ -78,6 +77,18 @@ async def shutdown_event():
     _workers.clear()
     _message_queue = None
     await shutdown_handlers()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await _startup()
+    try:
+        yield
+    finally:
+        await _shutdown()
+
+
+app = FastAPI(title="FinBot WhatsApp API", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -101,6 +112,13 @@ async def ready():
         return Response(status_code=503)
 
     return Response(status_code=200)
+
+
+@app.get("/health/ollama")
+async def ollama_health():
+    status = await ping_ollama()
+    status_code = 200 if status.get("ok") else 503
+    return JSONResponse(status_code=status_code, content=status)
 
 
 @app.post("/webhook")
