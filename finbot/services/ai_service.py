@@ -187,11 +187,20 @@ Mensagem do usuario: {message}
         return (
             "Posso registrar gastos, receitas e consultas. "
             f"Exemplos: {examples}."
+            " Aqui estão mais opções: gastei 40 no Uber, paguei aluguel hoje, recebi salário, quanto gastei essa semana."
         )
 
+    help_options = [
+        "gastei 40 no Uber",
+        "paguei aluguel hoje",
+        "recebi salário",
+        "quanto gastei essa semana",
+        "parcelamento de 3x no cartão",
+        "registra uma despesa em restaurantes",
+    ]
     return (
         "Posso te ajudar a registrar gastos, receitas e consultar seu mês. "
-        f"Sugestões rápidas: {examples}."
+        f"Sugestões: {', '.join(help_options[:4])}..."
     )
 
 

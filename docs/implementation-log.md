@@ -160,4 +160,5 @@ Implementado:
 - `conversation_manager` expõe as três primeiras frases como sugestões imediatas caso o bot não entenda a mensagem.
 - Documentação em `docs/natural-language-opcoes.md` descreve as frases e como usá-las.
 Validação:
+- Requisição de ajuda (`ajuda`, `menu`) retorna lista completa de exemplos na mensagem de fallback.
 - Revisão manual das respostas de fallback e verificação de que o endpoint `/health/ollama` retorna `ok` e a lista aparece nas mensagens de erro.
