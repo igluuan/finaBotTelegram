@@ -9,10 +9,12 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from finbot.core.config import WHATSAPP_ADAPTER_URL, WHATSAPP_WEBHOOK_SECRET
 from finbot.whatsapp.handlers import process_payload, shutdown as shutdown_handlers
+from finbot.services.ollama_service import ping_ollama
 from finbot.whatsapp.schemas import BaileysPayload
 
 logger = logging.getLogger(__name__)
@@ -110,6 +112,13 @@ async def ready():
         return Response(status_code=503)
 
     return Response(status_code=200)
+
+
+@app.get("/health/ollama")
+async def ollama_health():
+    status = await ping_ollama()
+    status_code = 200 if status.get("ok") else 503
+    return JSONResponse(status_code=status_code, content=status)
 
 
 @app.post("/webhook")

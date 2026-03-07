@@ -144,3 +144,11 @@ Implementado:
 - Documentação nova em `docs/ollama-setup.md` para descrever instalação, execução e variáveis necessárias ao Ollama.
 Validação:
 - Revisão manual do fluxo `ai_service.generate_content` e verificação de que o fallback acontece quando o Ollama não responde.
+
+### 2026-03-07 - Salud do Ollama
+Implementado:
+- Subida do servidor Ollama local (`ollama serve --listen 0.0.0.0:11434`) e verificação via `ollama list`.
+- Novo módulo `finbot.services.ollama_service` com `ping_ollama` que consulta `/api/version` e retorna a versão em uso.
+- Endpoint `GET /health/ollama` no FastAPI para validar a disponibilidade e expor um status 200/503.
+Validação:
+- `curl http://localhost:8000/health/ollama` responde `{"ok":true,...}` e confirma que o modelo phi3 está rodando sobre a versão 0.17.7.

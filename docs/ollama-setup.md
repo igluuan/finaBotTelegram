@@ -32,6 +32,14 @@ Este projeto agora prioriza o Ollama para gerar prompts e respostas (dicas, conf
   ```
 - Observe os logs estruturados (`finbot.core.logging`): mensagens como “Error calling Ollama” indicam tentativas e falhas.
 
+## Health check do backend
+- O FastAPI expõe `GET /health/ollama`, que chama o endpoint `/api/models` do Ollama para confirmar disponibilidade e modelo carregado.
+- Requisições bem-sucedidas retornam `{ "ok": true, "model": "phi3-mini", "available": true, ... }`; falhas respondem 503 com o erro.
+- Você pode testar com:
+  ```bash
+  curl http://localhost:8000/health/ollama
+  ```
+
 ## Considerações
 - O padrão `AI_PROVIDER=auto` garante resiliência: Ollama segue prioritário e Gemini entra só se o primeiro falhar.
 - Escolha um modelo compatível com a RAM da VPS; `phi3-mini` ou `mistral-7b-instruct` são bons candidatos para uso pessoal.
