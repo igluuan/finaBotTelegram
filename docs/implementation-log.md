@@ -137,3 +137,10 @@ Implementado:
 - Confirmado que os containers Docker (`finbot_python`, `finbot_whatsapp`) continuam rodando na mesma stack.
 Validação:
 - Logs manuais e inspeção de `docker compose ps` para garantir as duas peças principais estão ativas.
+
+### 2026-03-07 - Ollama como principal provedor
+Implementado:
+- Mudança do comportamento padrão de `AI_PROVIDER` para `auto`, priorizando o Ollama e permitindo fallback para o Gemini.
+- Documentação nova em `docs/ollama-setup.md` para descrever instalação, execução e variáveis necessárias ao Ollama.
+Validação:
+- Revisão manual do fluxo `ai_service.generate_content` e verificação de que o fallback acontece quando o Ollama não responde.
