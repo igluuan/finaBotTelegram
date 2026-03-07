@@ -161,4 +161,5 @@ Implementado:
 - Documentação em `docs/natural-language-opcoes.md` descreve as frases e como usá-las.
 Validação:
 - Requisição de ajuda (`ajuda`, `menu`) retorna lista completa de exemplos na mensagem de fallback.
+- Configuração do pedido de confirmação agora orienta o usuário a responder `sim` ou `não` e descarta o rascunho caso o `não` seja detectado.
 - Revisão manual das respostas de fallback e verificação de que o endpoint `/health/ollama` retorna `ok` e a lista aparece nas mensagens de erro.

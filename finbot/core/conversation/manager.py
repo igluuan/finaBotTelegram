@@ -50,6 +50,10 @@ class ConversationManager:
         lowered = (message or "").strip().lower()
         return any(token in lowered for token in ["editar", "edita", "corrigir", "corrige", "ajustar", "ajusta", "mudar", "altera"])
 
+    def _is_negative_confirmation_text(self, message: str) -> bool:
+        lowered = (message or "").strip().lower()
+        return lowered in {"nao", "não", "n", "não", "cancelar", "desistir"}
+
     def _extract_number(self, text: str) -> float | None:
         match = re.search(r"(\d+[\.,]\d+|\d+)", text or "")
         if not match:
@@ -183,6 +187,12 @@ class ConversationManager:
         if state.state == "WAITING_CONFIRMATION":
             if intent_type == 'confirmation' or (intent_type == 'unknown' and self._is_confirmation_text(original_message)):
                 return await self._execute_transaction(user_id, state)
+            if intent_type == 'cancellation' or self._is_negative_confirmation_text(original_message):
+                conversation_state_manager.set_state(user_id, "START")
+                state.clear_draft()
+                return ConversationResponse(
+                    text="Cancelado. Precisa de outra coisa?", suggestions=["Adicionar despesa", "Ver saldo"], action="CANCEL_TRANSACTION"
+                )
             if self._is_edit_text(original_message) and not any(intent_data.get(field) for field in ["value", "category", "installment_count"]):
                 return ConversationResponse(
                     text="Me diga só o que quer mudar. Exemplo: 'foi 52', 'categoria mercado' ou '3x'."
@@ -260,7 +270,7 @@ class ConversationManager:
         if desc:
             msg += f"Descrição: {desc}\n"
             
-        msg += "\nResponda com 'sim' para salvar ou mande só a correção."
+        msg += "\nResponda 'sim' para confirmar ou 'não' para cancelar."
         
         return ConversationResponse(
             text=msg,
