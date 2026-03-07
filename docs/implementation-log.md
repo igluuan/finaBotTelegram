@@ -126,3 +126,4 @@ Validation performed:
 - Rebuilt and restarted the full stack
 - Confirmed `GET /health` still returns `{"ok": true, "queue_size": 0, "workers": 2}`
 - Ran `python -m pytest -q tests/test_conversation_manager.py tests/whatsapp/test_whatsapp.py tests/whatsapp/test_reporting.py tests/whatsapp/test_audio.py` inside the backend container: `14 passed`
+- Added file persistence for uploaded audio and wound the pipeline toward transcription.

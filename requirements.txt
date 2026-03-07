@@ -3,6 +3,7 @@ apscheduler
 google-genai
 python-dotenv
 aiohttp
-httpx
 fastapi
+faster-whisper
+httpx
 uvicorn

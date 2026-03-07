@@ -5,6 +5,7 @@ from finbot.core.conversation.manager import conversation_manager
 from finbot.database.connection import get_db
 from finbot.database.repositories.user_repository import UserRepository
 from finbot.services.audio_service import build_audio_unavailable_message, store_audio_payload
+from finbot.services.transcription_service import transcribe_audio
 from finbot.services.report_service import ReportService
 from finbot.whatsapp.client import WhatsAppClient
 from finbot.whatsapp.schemas import BaileysPayload
@@ -60,7 +61,16 @@ async def process_payload(payload: BaileysPayload, request_id: str) -> None:
     if payload.media_type == "audio":
         logger.info("request_id=%s audio message received phone_tail=%s", request_id, user_phone[-4:])
         saved_path = store_audio_payload(payload.media_base64 or "", payload.mime_type, user_phone)
-        await _client.send_message(reply_target, build_audio_unavailable_message(saved_path))
+        transcript = await transcribe_audio(saved_path or "")
+        if transcript:
+            message = (
+                "Recebi seu áudio e transcrevi para você:\n"
+                f"Transcrição: {transcript}\n"
+                "Revise o texto e envie qualquer correção."
+            )
+        else:
+            message = build_audio_unavailable_message(saved_path)
+        await _client.send_message(reply_target, message)
         return
 
     if not text:
